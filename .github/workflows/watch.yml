@@ -34,9 +34,10 @@ jobs:
       - name: Restore watcher state
         run: |
           for b in t8030 t8110; do
-            mkdir -p .kcwatch/$b
+            mkdir -p .kcwatch/$b/reports
             cp state/$b/state.json .kcwatch/$b/state.json 2>/dev/null || true
             cp state/$b/*.txt .kcwatch/$b/ 2>/dev/null || true
+            cp reports/$b-*.md .kcwatch/$b/reports/ 2>/dev/null || true
           done
 
       - name: Watch boards
