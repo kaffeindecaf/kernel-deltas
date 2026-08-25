@@ -41,14 +41,14 @@ A short example — the real 26.6 → 26.6.1 report:
 
 ```
 xnu: 12377.162.13~2 -> 12377.162.14~4
-resolved: A=63  B=63   identical: 51   changed: 12   degraded: 0
+resolved: A=65  B=65   identical: 53   changed: 12   degraded: 0
 
 CHANGED:
   kernelSymbol.vn_kqfilter: 0xfffffff009ee6730 -> 0xfffffff009ee6974
   kernelSymbol.pmap_enter_options_addr: 0xfffffff009e6ab20 -> 0xfffffff009e6ad64
   ...
 
-VERDICT: YES. offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant
+VERDICT: YES: offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant
 offsets identical to previous build)
 ```
 
@@ -67,6 +67,34 @@ What each signal in a report means:
 | kernel base / entry moved | KASLR layout change → relevant for exploit geometry |
 
 ---
+
+## Status
+
+| board | SoC | device | last build | report |
+|-------|-----|--------|------------|--------|
+| t8030 | A13 | iPhone SE 2 | 26.6.1 (23G83) | [reports/t8030-26.6.1-23G83.md](reports/t8030-26.6.1-23G83.md) |
+| t8110 | A15 | iPhone 14 | 26.6.1 (23G83) | [reports/t8110-26.6.1-23G83.md](reports/t8110-26.6.1-23G83.md) |
+
+Baseline (2026-08-25): 26.6 (23G71) → 26.6.1 (23G83), xnu
+12377.162.13~2 → 12377.162.14~4, on both boards. t8030: 53 identical,
+12 symbol addresses shifted, zero struct moves. t8110: 53 identical, 13
+shifted, zero struct moves. `task.itk_space` 0x310 and `proc.struct_size`
+0x750 verified on both.
+
+The resolved set covers **65–66 offsets per build**: base/translation
+globals, physmap, proc/task/vm_map struct fields, trust cache, sandbox
+counts, and the extended symbols (`pmap_bootstrap`, `phystokv`,
+`arm_vm_init`, `fatal_error_fmt`, `iorvbar`, `task_collect_crash_info`,
+`proc_get_syscall_filter_mask_size`, …). `proc.p_name` resolves per board
+(t8030: 0x470 · t8110: 0x488 — see `kcwatch verify`: W0lfSword's offsets.m
+26.x block still lists 0x57d).
+
+The comparison table (`kexploit/offsets.m`) is vendored from W0lfSword;
+re-sync it whenever W0lfSword's table changes:
+`cp <W0lfSword>/kexploit/offsets.m kexploit/offsets.m`.
+
+Adding a board is one config line in scripts/kcwatch.py — t8103 (A14) is
+already defined, just enable it in the workflow.
 
 ## How it works
 

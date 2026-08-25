@@ -48,6 +48,8 @@
 0x0000000000000310 <- kernelStruct.task.itk_space
 0x0000000000000058 <- kernelStruct.vm_map.pmap
 0x0000000000000750 <- kernelStruct.proc.struct_size
+0x0000000000000470 <- kernelStruct.proc.p_name
+0x0000000000000000 <- kernelStruct.task.threads_next
 0x0000000000000000 <- kernelSymbol.perfmon_dev_open
 0x0000000000000000 <- kernelSymbol.perfmon_devices
 0xfffffff009ee6730 <- kernelSymbol.vn_kqfilter
