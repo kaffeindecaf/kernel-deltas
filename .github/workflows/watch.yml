@@ -53,6 +53,7 @@ jobs:
         run: |
           python3 scripts/kcwatch.py index
           python3 scripts/kcwatch.py atom
+          python3 scripts/kcwatch.py html
 
       - name: Sync state + reports
         run: |
@@ -67,4 +68,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "kcwatch: feed update"
-          file_pattern: "kernel-deltas.md atom.xml reports/ state/"
+          file_pattern: "kernel-deltas.md atom.xml docs/ reports/ state/"
