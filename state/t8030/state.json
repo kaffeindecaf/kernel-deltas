@@ -1,0 +1,26 @@
+{
+  "board": "t8030",
+  "last": {
+    "version": "26.6.1",
+    "buildid": "23G83",
+    "date": "2026-08-17T17:49:22Z",
+    "signed": true,
+    "dump": ".kcwatch/t8030/26.6.1-23G83.txt"
+  },
+  "history": [
+    {
+      "version": "26.6",
+      "buildid": "23G71",
+      "date": "2026-07-27T17:38:02Z",
+      "signed": false,
+      "dump": ".kcwatch/t8030/26.6-23G71.txt"
+    },
+    {
+      "version": "26.6.1",
+      "buildid": "23G83",
+      "date": "2026-08-17T17:49:22Z",
+      "signed": true,
+      "dump": ".kcwatch/t8030/26.6.1-23G83.txt"
+    }
+  ]
+}
