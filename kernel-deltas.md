@@ -1,34 +1,9 @@
 # kernel-deltas feed
 
-Latest: iOS 26.6.1 (23G83) on t8030, 2026-08-25
+Latest entries across all watched boards. Full reports:
+reports/<board>-<version>-<buildid>.md
 
-| release | build | board | xnu | identical | changed | degraded | verdict |
-|---------|-------|-------|-----|-----------|---------|----------|---------|
-| 26.6.1 | 23G83 | t8030 | 12377.162.14~4 | 51 | 12 | 0 | YES |
-
-See [README.md](README.md) for what this is and how it works.
-
----
-
-## iOS 26.6.1 (23G83) - t8030 (A13, iPhone SE 2) - 2026-08-25
-
-xnu: 12377.162.13~2 -> 12377.162.14~4
-resolved: A=63  B=63   identical: 51   changed: 12
-
-CHANGED:
-  kernelSymbol.arm_vm_init: 0xfffffff009e75414 -> 0xfffffff009e75658
-  kernelSymbol.fatal_error_fmt: 0xfffffff008b7c6d0 -> 0xfffffff008b7cb10
-  kernelSymbol.gPhysBase: 0xfffffff007b2faf8 -> 0xfffffff007b2fc38
-  kernelSymbol.gPhysSize: 0xfffffff007b2fb00 -> 0xfffffff007b2fc40
-  kernelSymbol.gVirtBase: 0xfffffff007b2daf8 -> 0xfffffff007b2dc38
-  kernelSymbol.phystokv: 0xfffffff009e73cf4 -> 0xfffffff009e73f38
-  kernelSymbol.pmap_bootstrap: 0xfffffff009e69574 -> 0xfffffff009e697b8
-  kernelSymbol.pmap_enter_options_addr: 0xfffffff009e6ab20 -> 0xfffffff009e6ad64
-  kernelSymbol.pmap_pin_kernel_pages: 0xfffffff009e65b38 -> 0xfffffff009e65d7c
-  kernelSymbol.pmap_remove_options: 0xfffffff009e6a8ec -> 0xfffffff009e6ab30
-  kernelSymbol.proc_get_syscall_filter_mask_size: 0xfffffff00a1e4554 -> 0xfffffff00a1e48e0
-  kernelSymbol.vn_kqfilter: 0xfffffff009ee6730 -> 0xfffffff009ee6974
-
-VERDICT: YES. offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant offsets identical to previous build)
-
----
+| date | board | release | build | xnu | identical | changed | verdict |
+|------|-------|---------|-------|-----|-----------|---------|---------|
+| 2026-07-27T17:38:02Z | t8030 | 26.6 | 23G71 | 12377.162.13~2 | 51 | 12 | YES (baseline) |
+| 2026-08-17T17:49:22Z | t8030 | 26.6.1 | 23G83 | 12377.162.14~4 | 51 | 12 | YES |

@@ -5,7 +5,12 @@
     "buildid": "23G83",
     "date": "2026-08-17T17:49:22Z",
     "signed": true,
-    "dump": ".kcwatch/t8030/26.6.1-23G83.txt"
+    "dump": ".kcwatch/t8030/26.6.1-23G83.txt",
+    "xnu": "12377.162.14~4",
+    "identical": 51,
+    "changed": 12,
+    "degraded": 0,
+    "verdict": "YES"
   },
   "history": [
     {
@@ -13,14 +18,24 @@
       "buildid": "23G71",
       "date": "2026-07-27T17:38:02Z",
       "signed": false,
-      "dump": ".kcwatch/t8030/26.6-23G71.txt"
+      "dump": ".kcwatch/t8030/26.6-23G71.txt",
+      "xnu": "12377.162.13~2",
+      "identical": 51,
+      "changed": 12,
+      "degraded": 0,
+      "verdict": "YES (baseline)"
     },
     {
       "version": "26.6.1",
       "buildid": "23G83",
       "date": "2026-08-17T17:49:22Z",
       "signed": true,
-      "dump": ".kcwatch/t8030/26.6.1-23G83.txt"
+      "dump": ".kcwatch/t8030/26.6.1-23G83.txt",
+      "xnu": "12377.162.14~4",
+      "identical": 51,
+      "changed": 12,
+      "degraded": 0,
+      "verdict": "YES"
     }
   ]
 }

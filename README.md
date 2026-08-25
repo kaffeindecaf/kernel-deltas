@@ -2,7 +2,9 @@
 
 What changed in the iOS kernel between builds. Resolved offsets and symbols, diffed per release, published as plain markdown.
 
-Watching t8030 (A13, iPhone SE 2) since 2026-08-25. Every new signed release is fetched, resolved, diffed and reported within hours of Apple shipping it. No devices involved, no jailbreaks, no 8GB downloads.
+Watching t8030 (A13, iPhone SE 2) and t8110 (A15, iPhone 14) since 2026-08-25. Every new signed release is fetched, resolved, diffed and reported within hours of Apple shipping it. No devices involved, no jailbreaks, no 8GB downloads.
+
+Subscribe: [atom.xml](atom.xml) works with any RSS reader.
 
 ## Why this exists
 
@@ -48,10 +50,11 @@ What each signal means:
 | board | SoC | device | last build | report |
 |-------|-----|--------|------------|--------|
 | t8030 | A13 | iPhone SE 2 | 26.6.1 (23G83) | [reports/t8030-26.6.1-23G83.md](reports/t8030-26.6.1-23G83.md) |
+| t8110 | A15 | iPhone 14 | baseline pending | - |
 
-Baseline diff (2026-08-25): 26.6 (23G71) to 26.6.1 (23G83), xnu 12377.162.13~2 to 12377.162.14~4. 51 items identical, 12 symbol addresses shifted, zero struct moves.
+Baseline diff (2026-08-25): 26.6 (23G71) to 26.6.1 (23G83), xnu 12377.162.13~2 to 12377.162.14~4. 51 items identical, 12 symbol addresses shifted, zero struct moves. The t8030 offsets.m values were verified against the live 26.6.1 kernelcache: task.itk_space 0x310 matches.
 
-Adding a board is one config line in scripts/kcwatch.py. t8103 (A14) and t8110 (A15) are already defined; enable them in .github/workflows/watch.yml when you want them watched.
+Adding a board is one config line in scripts/kcwatch.py. t8103 (A14) is also defined; enable it in .github/workflows/watch.yml when you want it watched.
 
 ## Run it yourself
 
@@ -67,6 +70,9 @@ Or directly, without the wrapper:
 
 ```
 python3 scripts/kcwatch.py poll --board t8030
+python3 scripts/kcwatch.py verify --board t8030   # offsets.m vs live kernelcache
+python3 scripts/kcwatch.py index                  # render kernel-deltas.md
+python3 scripts/kcwatch.py atom                   # render atom.xml
 ```
 
 Needs the prebuilt xpf-cli (tools/xpf-cli) and liblzfse1.
