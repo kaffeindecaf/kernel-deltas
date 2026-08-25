@@ -1,0 +1,19 @@
+{
+  "board": "t8110",
+  "last": {
+    "version": "26.6.1",
+    "buildid": "23G83",
+    "date": "2026-08-17T17:49:21Z",
+    "signed": true,
+    "dump": ".kcwatch/t8110/26.6.1-23G83.txt"
+  },
+  "history": [
+    {
+      "version": "26.6.1",
+      "buildid": "23G83",
+      "date": "2026-08-17T17:49:21Z",
+      "signed": true,
+      "dump": ".kcwatch/t8110/26.6.1-23G83.txt"
+    }
+  ]
+}
