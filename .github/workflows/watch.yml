@@ -25,7 +25,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 liblzfse1
+          sudo apt-get install -y python3 liblzfse1 libblocksruntime0
 
       - name: Restore watcher state
         run: |

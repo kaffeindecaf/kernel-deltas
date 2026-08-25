@@ -13,8 +13,9 @@ kernel struct offsets against the 26.0.1 table in `kexploit/offsets.m`.
 ```
 
 Debian/Ubuntu build deps: `sudo apt install liblzfse-dev libblocksruntime-dev`
-(plus clang). The shipped `xpf-cli` binary is linked against liblzfse.so.1 —
-install `liblzfse1` if you run the prebuilt one instead of rebuilding.
+(plus clang). The shipped `xpf-cli` binary is linked against liblzfse.so.1
+and libBlocksRuntime.so.0 — install `liblzfse1 libblocksruntime0` if you
+run the prebuilt one instead of rebuilding.
 
 Feed it the **IMG4 kernelcache** (e.g. extracted from an IPSW). Modern
 Apple-CDN kernelcaches for A12+ are unencrypted; XPF's `kdecompress` handles
