@@ -11,6 +11,10 @@
 
 name: kcwatch
 
+# the auto-commit step pushes with GITHUB_TOKEN - needs write access
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: '0 6 * * *'        # once a day, polite to ipsw.me and the CDN
