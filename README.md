@@ -3,7 +3,6 @@
 **What changed in the iOS kernel between builds — automatically.**
 
 [![kcwatch workflow](https://github.com/kaffeindecaf/kernel-deltas/actions/workflows/watch.yml/badge.svg)](https://github.com/kaffeindecaf/kernel-deltas/actions)
-[![dashboard](https://img.shields.io/badge/dashboard-live-58a6ff)](https://kaffeindecaf.github.io/kernel-deltas/)
 [![feed](https://img.shields.io/badge/feed-markdown-3fb950)](kernel-deltas.md)
 [![atom/rss](https://img.shields.io/badge/atom-rss-d29922)](atom.xml)
 
@@ -17,7 +16,6 @@ Watching **t8030** (A13 · iPhone SE 2) and **t8110** (A15 · iPhone 14) since
 
 | where | what |
 |---|---|
-| 📊 [live dashboard](https://kaffeindecaf.github.io/kernel-deltas/) | board cards + full history table |
 | 📄 [kernel-deltas.md](kernel-deltas.md) | the feed, readable inline on GitHub |
 | 📡 [atom.xml](atom.xml) | subscribe in any RSS reader |
 | 📰 [`reports/`](reports/) | one markdown report per release pair |
@@ -140,7 +138,6 @@ python3 scripts/kcwatch.py poll --board t8030   # fetch → resolve → diff →
 python3 scripts/kcwatch.py verify --board t8030 # is the offsets table still valid?
 python3 scripts/kcwatch.py index                # render kernel-deltas.md
 python3 scripts/kcwatch.py atom                 # render atom.xml
-python3 scripts/kcwatch.py html                 # render docs/index.html (dashboard)
 ```
 
 Needs the prebuilt [`tools/xpf-cli`](tools/xpf-cli/README.md) and `liblzfse1`.
@@ -152,7 +149,6 @@ Needs the prebuilt [`tools/xpf-cli`](tools/xpf-cli/README.md) and `liblzfse1`.
 ```
 kernel-deltas.md      the feed index (regenerated each run)
 atom.xml              RSS/Atom feed
-docs/index.html       the web dashboard (GitHub Pages, main /docs)
 reports/              one markdown report per release pair
 state/<board>/        raw XPF dumps + watcher state (the evidence)
 scripts/              kcwatch.py (orchestrator) · kczip.py (ranged fetch) · xpf_diff.py
