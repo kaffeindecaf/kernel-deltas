@@ -15,13 +15,17 @@ Subcommands:
   atom            render an Atom feed (atom.xml) from the report files
   fetch           ranged-fetch a kernelcache IMG4 out of an IPSW url
   regen           rebuild reports + state from the cached XPF dumps
+  commit          stage the feed artifacts, commit, optionally push
+  doctor          environment sanity checks with fix hints
+  help            command overview
 
 Fused from the former scripts/ modules: kczip.py (zip64 range reader),
 xpf_diff.py (dump parse/diff), fetch_kernelcache.py (-> fetch),
 regenerate_dumps.py (-> regen).
 
 Options:  --board t8030|t8103|t8110   --version <ver> (backfill)
-          --dry-run   --json   (env: KCWATCH_DIR, KCWATCH_FEED_URL, KCWATCH_NO_BANNER)
+          --dry-run   --json   --yes   --push
+          (env: KCWATCH_DIR, KCWATCH_FEED_URL, KCWATCH_NO_BANNER, KCWATCH_DEBUG)
 
 State/cache lives in <repo>/.w0lfsword/kcwatch/<board>/ (gitignored).
 """
@@ -37,7 +41,7 @@ import time
 import urllib.request
 import zlib
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 
 # ── arctic wolf palette (from W0lfSword scripts/usbliter8_arctic/colors.py) ──
 class C:
@@ -595,12 +599,25 @@ def cmd_status(args):
     st = load_state(args.board)
     last = st.get("last")
     if not last:
-        print("%s: no state yet - run 'kcwatch poll'" % args.board)
+        print("%s: no state yet - run 'poll' first (menu [1])" % args.board)
         return 0
     print("%s: last seen iOS %s (%s, %s) signed=%s" % (
         args.board, last["version"], last["buildid"], last["date"], last["signed"]))
-    print("  dump: %s" % last.get("dump"))
+    dump = last.get("dump")
+    if dump and not os.path.isabs(dump) and not os.path.isfile(dump):
+        dump = os.path.join(kc_base(), dump)
+    if dump and os.path.isfile(dump):
+        hdr, items = parse_dump(dump)
+        nres = sum(1 for v in items.values() if v is not None)
+        print("  dump: %s" % dump)
+        print("  resolved: %d/%d items   xnu: %s" % (
+            nres, len(items), hdr.get("xnu", "?")))
+    else:
+        print("  dump: %s (missing)" % last.get("dump"))
     print("  history: %d build(s)" % len(st.get("history", [])))
+    for h in st.get("history", [])[-3:]:
+        if h.get("verdict"):
+            print("    %s %s: %s" % (h.get("version"), h.get("buildid"), h.get("verdict")))
     return 0
 
 
@@ -870,6 +887,175 @@ def cmd_regen(args):
     return 0
 
 
+def _check(name, ok, hint=""):
+    mark = "%sOK%s" % (C.GRN, C.NC) if ok else "%sFAIL%s" % (C.RED, C.NC)
+    print("  %s %-22s %s%s" % (mark, name, hint, C.NC))
+    return ok
+
+
+def cmd_doctor(args):
+    """Environment sanity checks with fix hints (menu [10])."""
+    print("  %skernel-deltas doctor%s" % (C.SNOW, C.NC))
+    print()
+    ok = True
+    _check("python3", sys.version_info >= (3, 8), sys.version.split()[0])
+    if os.path.isfile(XPF_CLI) and os.access(XPF_CLI, os.X_OK):
+        _check("xpf-cli binary", True, XPF_CLI)
+    else:
+        _check("xpf-cli binary", False,
+               "missing - rebuild via tools/xpf-cli/build.sh (needs a W0lfSword checkout)")
+        ok = False
+    if os.path.isfile(XPF_CLI):
+        try:
+            r = subprocess.run([XPF_CLI], capture_output=True, text=True, timeout=30)
+            if "cannot open shared object" in r.stderr or "error while loading" in r.stderr:
+                _check("xpf-cli shared libs", False,
+                       "missing libs - sudo apt install liblzfse1 libblocksruntime0")
+                ok = False
+            else:
+                _check("xpf-cli runs", True, "(exit %d, prints usage)" % r.returncode)
+        except OSError as e:
+            _check("xpf-cli runs", False, str(e))
+            ok = False
+    if os.path.isfile(OFFSETS_M):
+        _check("offsets.m", True, OFFSETS_M)
+    else:
+        _check("offsets.m", False, "missing - cp from W0lfSword/kexploit/offsets.m")
+        ok = False
+    try:
+        os.makedirs(kc_base(), exist_ok=True)
+        probe = os.path.join(kc_base(), ".write-test")
+        with open(probe, "w") as fh:
+            fh.write("x")
+        os.unlink(probe)
+        _check("state dir writable", True, kc_base())
+    except OSError as e:
+        _check("state dir writable", False, str(e))
+        ok = False
+    r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        _check("git repo", True, "(needed by the commit command)")
+    else:
+        _check("git repo", False, "not a git checkout - commit command will not work")
+        ok = False
+    try:
+        with urllib.request.urlopen("https://api.ipsw.me/v4/device/iPhone12,8",
+                                    timeout=10) as resp:
+            _check("ipsw.me reachable", True, "HTTP %d" % resp.status)
+    except Exception as e:
+        _check("ipsw.me reachable", False, "%s (offline? proxy?)" % e)
+        ok = False
+    print()
+    if ok:
+        print("  %sall checks passed%s" % (C.GRN, C.NC))
+        print("  next: menu [1] poll for a new build, then [9] commit to push the feed")
+    else:
+        print("  %ssome checks failed - fix the red items above%s" % (C.AMB, C.NC))
+    return 0 if ok else 1
+
+
+FEED_FILES = ["kernel-deltas.md", "atom.xml", "reports/", "state/"]
+
+
+def cmd_commit(args):
+    """Stage the feed artifacts, show the diff, commit, optionally push
+    (menu [9]). Same file set the GitHub workflow commits."""
+    os.chdir(REPO_DIR)
+    r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  %snot a git repo - nothing to commit%s" % (C.AMB, C.NC))
+        return 1
+    print("  %schanges:%s" % (C.FROST, C.NC))
+    status = subprocess.run(["git", "status", "--short"],
+                            capture_output=True, text=True).stdout
+    if not status.strip():
+        print("  (none)")
+    else:
+        print(status.rstrip())
+    subprocess.run(["git", "add", "--"] + FEED_FILES, capture_output=True)
+    staged = subprocess.run(["git", "diff", "--cached", "--stat"],
+                            capture_output=True, text=True).stdout.strip()
+    if not staged:
+        print("  %sfeed files unchanged - nothing to commit%s" % (C.DIM, C.NC))
+        return 0
+    print()
+    print("  %sstaged for commit:%s" % (C.FROST, C.NC))
+    print(staged)
+    after = subprocess.run(["git", "status", "--short"],
+                           capture_output=True, text=True).stdout
+    unstaged = [l for l in after.splitlines()
+                if l and (l[0] == " " or l[:2] == "??")]
+    if unstaged:
+        print()
+        print("  %snot staged (left alone):%s" % (C.DIM, C.NC))
+        for l in unstaged:
+            print("    %s" % l)
+        print("  %suse 'git add -A' manually if you want those in this commit%s" % (C.DIM, C.NC))
+    print()
+    if args.yes:
+        msg = "kcwatch: feed update"
+    else:
+        msg = _ask("commit message", "short summary of this feed update",
+                   "kcwatch: feed update", "kcwatch: feed update")
+        if msg is None:
+            return 0
+    msg = (msg or "kcwatch: feed update").strip()
+    rc = subprocess.run(["git", "commit", "-m", msg])
+    if rc.returncode != 0:
+        print("  %scommit failed (exit %d)%s" % (C.RED, rc.returncode, C.NC))
+        return 1
+    if args.push:
+        do_push = True
+    elif args.yes:
+        do_push = False
+    else:
+        p = _ask("push to origin/main", "y = push now, n = commit only", "y")
+        do_push = bool(p) and p.strip().lower() in ("y", "yes")
+    if do_push:
+        pr = subprocess.run(["git", "push", "origin", "HEAD"], capture_output=True, text=True)
+        if pr.returncode == 0:
+            print("  %spushed%s" % (C.GRN, C.NC))
+        else:
+            print(pr.stdout[-1500:])
+            print(pr.stderr[-1500:])
+            print("  %spush rejected - remote moved? fix with:%s" % (C.AMB, C.NC))
+            print("    git fetch origin && git rebase origin/main && git push origin HEAD")
+            return 1
+    else:
+        print("  %scommitted locally - push later with 'git push origin HEAD'%s" % (C.DIM, C.NC))
+    return 0
+
+
+def cmd_help(args):
+    """Friendly command overview."""
+    print("  %skernel-deltas%s - kernelcache delta feed" % (C.SNOW, C.NC))
+    print("  usage: ./kernel-deltas [command] [options]")
+    print("  bare ./kernel-deltas opens the interactive menu")
+    print()
+    print("  commands:")
+    for name, desc in (
+        ("poll", "check for a new build, fetch + resolve + diff + report"),
+        ("status", "show the cached build and history for a board"),
+        ("diff", "diff the two most recent cached builds"),
+        ("verify", "compare resolved struct offsets against offsets.m"),
+        ("index", "render the cumulative feed (kernel-deltas.md)"),
+        ("atom", "render the RSS/Atom feed (atom.xml)"),
+        ("fetch", "ranged-fetch a kernelcache out of an IPSW url"),
+        ("regen", "rebuild reports + state from cached dumps"),
+        ("commit", "stage the feed artifacts, commit, push"),
+        ("doctor", "environment sanity checks"),
+        ("menu", "interactive menu"),
+    ):
+        print("    %-8s %s" % (name, desc))
+    print()
+    print("  options: --board t8030|t8103|t8110 --version <ver> --dry-run")
+    print("           --json --yes (commit non-interactively) --push (push after commit)")
+    print("  env:     KCWATCH_DIR, KCWATCH_FEED_URL, KCWATCH_NO_BANNER, KCWATCH_DEBUG")
+    return 0
+
+
 def _ask(label, kind, example, default=None):
     """Prompt with the expected input type and an example.
     Returns the stripped value (or default); None on EOF/Ctrl-C."""
@@ -940,14 +1126,30 @@ def cmd_menu(args):
         print("  %s[7]%s fetch    ranged-fetch just the kernelcache out of a full" % (C.EYE, C.NC))
         print("                IPSW url (about 20 MB of an 8 GB file)")
         print("  %s[8]%s regen    rebuild reports + state from the cached XPF dumps" % (C.EYE, C.NC))
+        print("  %s[9]%s commit   stage the feed files, commit, push to GitHub" % (C.EYE, C.NC))
+        print("  %s[10]%s doctor   environment sanity checks" % (C.EYE, C.NC))
+        print("  %s[h]%s help    this list" % (C.EYE, C.NC))
         print("  %s[0]%s exit" % (C.EYE, C.NC))
         print()
-        choice = _ask("menu choice", "a number 0-8, one per line", "1 (poll) or 4 (verify)")
+        choice = _ask("menu choice", "a number 0-10, or h for help", "1 (poll), 4 (verify) or 9 (commit)")
         if choice is None:
             return 0
-        choice = choice.strip()
+        choice = choice.strip().lower()
         if choice == "0" or choice == "":
             return 0
+        if choice in ("h", "help"):
+            cmd_help(args)
+            continue
+        tips = {
+            "1": "new report written - hit [9] commit to push it",
+            "2": "hit [4] verify to cross-check the offsets table",
+            "3": "a NO verdict means the offsets table needs a new version block",
+            "4": "MISMATCH rows = offsets.m values that differ from this kernel",
+            "5": "hit [9] commit to publish the updated feed",
+            "6": "hit [9] commit to publish the updated feed",
+            "7": "resolve the saved .img4 with tools/xpf-cli/xpf-cli",
+            "8": "run [5] index + [6] atom after regen, then [9] commit",
+        }
         try:
             if choice == "1":
                 if _ask_board(args) is None:
@@ -986,13 +1188,20 @@ def cmd_menu(args):
                 cmd_fetch(args)
             elif choice == "8":
                 cmd_regen(args)
+            elif choice == "9":
+                cmd_commit(args)
+            elif choice == "10":
+                cmd_doctor(args)
             else:
                 print("  %sunknown choice: %r%s" % (C.AMB, choice, C.NC))
+            if choice in tips:
+                print("  %s%s%s" % (C.DIM, tips[choice], C.NC))
         except (EOFError, KeyboardInterrupt):
             print()
             return 0
         except Exception as e:
-            print("  %s%s%s" % (C.RED, e, C.NC))
+            print("  %serror: %s%s" % (C.RED, e, C.NC))
+            print("  %shint: run [10] doctor for a quick environment check%s" % (C.DIM, C.NC))
     return 0
 
 
@@ -1000,13 +1209,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", nargs="?", default="menu",
-                    choices=["menu", "poll", "status", "diff", "verify", "index", "atom",
+                    choices=["menu", "help", "doctor", "commit",
+                             "poll", "status", "diff", "verify", "index", "atom",
                              "fetch", "regen"])
     ap.add_argument("--board", default=DEFAULT_BOARD, choices=sorted(BOARDS))
     ap.add_argument("--version", help="process a specific release version instead of the newest (backfill)")
     ap.add_argument("--prefix", default=KC_NAME, help="zip entry name prefix (fetch)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--yes", action="store_true",
+                    help="non-interactive commit with the default message")
+    ap.add_argument("--push", action="store_true",
+                    help="push after commit (use with --yes for fully non-interactive)")
     ap.add_argument("url", nargs="?", help="IPSW url (fetch)")
     ap.add_argument("out", nargs="?", help="output .img4 path (fetch)")
     args = ap.parse_args()
@@ -1020,28 +1234,44 @@ def main():
         print(json.dumps(st, indent=2))
         return 0
 
-    if args.cmd == "menu":
-        return cmd_menu(args)
-    if args.cmd == "poll":
-        return cmd_poll(args)
-    if args.cmd == "status":
-        return cmd_status(args)
-    if args.cmd == "diff":
-        return cmd_diff(args)
-    if args.cmd == "verify":
-        return cmd_verify(args)
-    if args.cmd == "index":
-        return cmd_index(args)
-    if args.cmd == "atom":
-        return cmd_atom(args)
-    if args.cmd == "fetch":
-        if not args.url:
-            print("usage: kcwatch.py fetch <ipsw-url> [out.img4]")
-            return 1
-        return cmd_fetch(args)
-    if args.cmd == "regen":
-        return cmd_regen(args)
-    return 0
+    try:
+        if args.cmd == "menu":
+            return cmd_menu(args)
+        if args.cmd == "help":
+            return cmd_help(args)
+        if args.cmd == "doctor":
+            return cmd_doctor(args)
+        if args.cmd == "commit":
+            return cmd_commit(args)
+        if args.cmd == "poll":
+            return cmd_poll(args)
+        if args.cmd == "status":
+            return cmd_status(args)
+        if args.cmd == "diff":
+            return cmd_diff(args)
+        if args.cmd == "verify":
+            return cmd_verify(args)
+        if args.cmd == "index":
+            return cmd_index(args)
+        if args.cmd == "atom":
+            return cmd_atom(args)
+        if args.cmd == "fetch":
+            if not args.url:
+                print("usage: ./kernel-deltas fetch <ipsw-url> [out.img4]")
+                return 1
+            return cmd_fetch(args)
+        if args.cmd == "regen":
+            return cmd_regen(args)
+        return 0
+    except KeyboardInterrupt:
+        print()
+        return 130
+    except Exception as e:
+        if os.environ.get("KCWATCH_DEBUG"):
+            raise
+        print("  %serror: %s%s" % (C.RED, e, C.NC))
+        print("  %shint: run './kernel-deltas doctor' for a quick environment check%s" % (C.DIM, C.NC))
+        return 1
 
 
 if __name__ == "__main__":

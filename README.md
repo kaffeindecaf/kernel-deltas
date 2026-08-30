@@ -133,11 +133,18 @@ also works directly:
 ./kernel-deltas atom                  # render atom.xml
 ./kernel-deltas fetch <ipsw-url> kc.img4  # ranged-fetch a kernelcache, no full IPSW
 ./kernel-deltas regen                 # rebuild reports/state from cached dumps
+./kernel-deltas commit                # stage the feed files, commit, push
+./kernel-deltas commit --yes --push   # same, fully non-interactive
+./kernel-deltas doctor                # environment sanity checks
+./kernel-deltas help                  # command overview
 ```
 
 Everything is in the one script - the ranged fetch (kczip), the dump diff
 (xpf_diff), the standalone fetcher, and the regenerator were fused in as
-subcommands. Needs the prebuilt tools/xpf-cli binary and liblzfse1.
+subcommands. `commit` stages exactly the files the GitHub workflow commits
+(kernel-deltas.md, atom.xml, reports/, state/), shows you what would go in,
+and asks before committing and pushing. Needs the prebuilt tools/xpf-cli
+binary and liblzfse1.
 
 ## Adding offsets
 
