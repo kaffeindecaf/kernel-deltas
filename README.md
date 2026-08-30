@@ -37,17 +37,24 @@ version block before kernel work will work.
 | t8110 | A15 | iPhone 14 | 26.6.1 (23G83) | [reports/t8110-26.6.1-23G83.md](reports/t8110-26.6.1-23G83.md) |
 
 Baseline (2026-08-25): 26.6 (23G71) -> 26.6.1 (23G83), xnu
-12377.162.13~2 -> 12377.162.14~4, on both boards. t8030: 53 identical, 12
-symbol addresses shifted, 0 struct moves. t8110: 53 identical, 13 shifted,
+12377.162.13~2 -> 12377.162.14~4, on both boards. t8030: 59 identical, 12
+symbol addresses shifted, 0 struct moves. t8110: 59 identical, 13 shifted,
 0 struct moves. task.itk_space 0x310 and proc.struct_size 0x750 verified on
 both.
 
-The resolved set covers 65-66 offsets per build: base/translation globals,
+The resolved set covers 71-72 offsets per build: base/translation globals,
 physmap, proc/task/vm_map struct fields, trust cache, sandbox counts, plus
 the extended symbols (pmap_bootstrap, phystokv, arm_vm_init, fatal_error_fmt,
 iorvbar, task_collect_crash_info, proc_get_syscall_filter_mask_size, ...).
-proc.p_name resolves per board (t8030 0x470, t8110 0x488; see `kcwatch
-verify`: W0lfSword's offsets.m 26.x block still lists 0x57d).
+Added 2026-08-30: thread.t_tro, thread.ast, thread.ctid,
+thread.machine_upcb, proc.p_fd, task.task_exc_guard (new XPF finders).
+
+Two offsets in the 26.x block of W0lfSword's offsets.m do not match 26.6/26.6.1
+(measured on both boards, both builds): thread.t_tro resolves 0x3a0 (t8030)
+/ 0x3b0 (t8110) vs the table's 0x390 / 0x398, and task.task_exc_guard
+resolves 0x5dc / 0x604 vs 0x5d4 / 0x5fc. The thread/task structs grew since
+the table was measured. `kcwatch verify` flags both, plus the known
+proc.p_name per-board delta (t8030 0x470, t8110 0x488, table still 0x57d).
 
 ## Reading a report
 
@@ -55,7 +62,7 @@ Real 26.6 -> 26.6.1 report (t8030):
 
 ```
 xnu: 12377.162.13~2 -> 12377.162.14~4
-resolved: A=65  B=65   identical: 53   changed: 12   degraded: 0
+resolved: A=71  B=71   identical: 59   changed: 12   degraded: 0
 
 CHANGED:
   kernelSymbol.vn_kqfilter: 0xfffffff009ee6730 -> 0xfffffff009ee6974
@@ -98,9 +105,9 @@ ipsw.me ---- poll for new signed build
         report + feed + atom     (committed automatically)
 ```
 
-The pipeline is scripts/kcwatch.py and runs daily at 06:00 UTC via GitHub
-Actions (.github/workflows/watch.yml). It is built on the W0lfSword iOS
-toolkit and shares its offset tables, so a NO verdict here is a direct
+The pipeline is the ./kernel-deltas script and runs daily at 06:00 UTC via
+GitHub Actions (.github/workflows/watch.yml). It is built on the W0lfSword
+iOS toolkit and shares its offset tables, so a NO verdict here is a direct
 signal for anyone maintaining exploit offsets.
 
 ## Run it yourself
@@ -114,41 +121,45 @@ cd W0lfSword
 ./W0lfSword kcwatch verify --board t8030   # offsets.m vs live kernelcache
 ```
 
-Or drive this repo directly (one fused script, wolf banner included):
+Or drive this repo directly (one fused script at the repo root, wolf banner
+included). Bare `./kernel-deltas` opens an interactive menu; every command
+also works directly:
 
 ```bash
-python3 scripts/kcwatch.py poll --board t8030   # fetch -> resolve -> diff -> report
-python3 scripts/kcwatch.py verify --board t8030 # is the offsets table still valid?
-python3 scripts/kcwatch.py index                # render kernel-deltas.md
-python3 scripts/kcwatch.py atom                 # render atom.xml
-python3 scripts/kcwatch.py fetch <ipsw-url> kc.img4  # ranged-fetch a kernelcache, no full IPSW
-python3 scripts/kcwatch.py regen                # rebuild reports/state from cached dumps
+./kernel-deltas                       # interactive menu
+./kernel-deltas poll --board t8030    # fetch -> resolve -> diff -> report
+./kernel-deltas verify --board t8030  # is the offsets table still valid?
+./kernel-deltas index                 # render kernel-deltas.md
+./kernel-deltas atom                  # render atom.xml
+./kernel-deltas fetch <ipsw-url> kc.img4  # ranged-fetch a kernelcache, no full IPSW
+./kernel-deltas regen                 # rebuild reports/state from cached dumps
 ```
 
-Everything is in scripts/kcwatch.py - the ranged fetch (kczip), the dump
-diff (xpf_diff), the standalone fetcher, and the regenerator were fused in
-as subcommands. Needs the prebuilt tools/xpf-cli binary and liblzfse1.
+Everything is in the one script - the ranged fetch (kczip), the dump diff
+(xpf_diff), the standalone fetcher, and the regenerator were fused in as
+subcommands. Needs the prebuilt tools/xpf-cli binary and liblzfse1.
 
 ## Adding offsets
 
-The feed only diffs what the xpf-cli binary resolves. That list lives in
-tools/xpf-cli/xpf_patched.c, grouped into sets (base, translation, physmap,
-struct, extended, sandbox, ...). Each entry is a metric name like
-`kernelSymbol.pmap_bootstrap` or `kernelStruct.task.itk_space`. The finder
-for each name lives in the XPF source (XPF/src/common.c, non_ppl.c, ppl.c,
-bad_recovery.c), which is not vendored here - only the prebuilt binary is.
+The feed tracks every item the xpf-cli binary resolves, and the binary
+prints every finder registered in the XPF source. Finders live in
+W0lfSword's XPF/src (common.c, non_ppl.c, ppl.c, bad_recovery.c) - the
+source is not vendored here, only the prebuilt binary is. Each finder is a
+pattern scan or xref walk registered with xpf_item_register() in the
+xpf_*_init() functions, under a name like `kernelStruct.task.itk_space` or
+`kernelSymbol.pmap_bootstrap`.
 
 Steps:
 
-1. Check the name exists. Finders are registered with xpf_item_register()
-   in the xpf_*_init() functions. A name with no registered finder prints
-   0x0 silently, so grep the XPF source for the name first.
-2. Add the metric string to the right set in xpf_patched.c. If the finder
-   does not exist yet, write one (PFPatternMetric pattern scan or an xref
-   walk, same style as the neighbours) and register it in init.
+1. Check the name exists. A name with no registered finder prints 0x0
+   silently, so grep the XPF source for the name first.
+2. If the finder does not exist yet, write one (PFPatternMetric pattern
+   scan or an xref walk, same style as the neighbours) and register it in
+   init. The offsets.m comments document the per-version hex recipes for
+   most struct offsets - use those as the pattern.
 3. Rebuild. build.sh compiles XPF/src + ChOma, so run it in a W0lfSword
-   checkout (which has XPF/), then copy the fresh binary and xpf_patched.c
-   back into tools/xpf-cli/.
+   checkout (which has XPF/), then copy the fresh binary back into
+   tools/xpf-cli/.
 4. Re-resolve the cached kernelcaches:
 
    ```bash
@@ -157,28 +168,27 @@ Steps:
 
    Do that for every board and build you want in the feed. The kernelcache
    IMG4s are gitignored, so on a fresh clone re-fetch one with
-   `kcwatch poll --version <ver>` first. The dump format is one line per
-   item: `0x0000000000000310 <- kernelStruct.task.itk_space`.
+   `./kernel-deltas poll --version <ver>` first. The dump format is one
+   line per item: `0x0000000000000310 <- kernelStruct.task.itk_space`.
 5. Rebuild the feed artifacts:
 
    ```bash
-   python3 scripts/kcwatch.py regen             # reports + state from the new dumps
-   python3 scripts/kcwatch.py index             # kernel-deltas.md
-   python3 scripts/kcwatch.py atom              # atom.xml
+   ./kernel-deltas regen             # reports + state from the new dumps
+   ./kernel-deltas index             # kernel-deltas.md
+   ./kernel-deltas atom              # atom.xml
    ```
 
 6. Commit the new dumps, reports, feed, and the rebuilt binary.
 
-Optional: make `kcwatch verify` check the new offset against
-kexploit/offsets.m. Verify maps dump item `kernelStruct.<x>.<y>` to variable
-`off_<x>_<y>`, so a struct offset named kernelStruct.task.map needs
-`off_task_map = 0x...` in the right version block of offsets.m (which is
-vendored from W0lfSword; re-sync with
-`cp <W0lfSword>/kexploit/offsets.m kexploit/offsets.m`). Symbol addresses do
-not need offsets.m entries.
+Optional: make `verify` check the new offset against kexploit/offsets.m.
+Verify maps dump item `kernelStruct.<x>.<y>` to variable `off_<x>_<y>`, so
+a struct offset named kernelStruct.task.map needs `off_task_map = 0x...` in
+the right version block of offsets.m (which is vendored from W0lfSword;
+re-sync with `cp <W0lfSword>/kexploit/offsets.m kexploit/offsets.m`).
+Symbol addresses do not need offsets.m entries.
 
-Adding a board is a separate change: one line in the BOARDS dict in
-scripts/kcwatch.py (t8103, A14, is already defined) plus a loop entry in
+Adding a board is a separate change: one line in the BOARDS dict in the
+kernel-deltas script (t8103, A14, is already defined) plus a loop entry in
 .github/workflows/watch.yml.
 
 ## Repo layout
@@ -188,8 +198,8 @@ kernel-deltas.md      the feed index (regenerated each run)
 atom.xml              RSS/Atom feed
 reports/              one markdown report per release pair
 state/<board>/        raw XPF dumps + watcher state (the evidence)
-scripts/              kcwatch.py (single fused script: watch pipeline, ranged
-                      fetch, dump diff, feed rendering, regenerator)
+kernel-deltas         the main script (watch pipeline, ranged fetch, dump
+                      diff, feed rendering, regenerator, interactive menu)
 tools/xpf-cli/        the prebuilt patchfinder (source + shims + binary)
 kexploit/offsets.m    the vendored offset table the verdict compares against
 .github/workflows/    the daily cron

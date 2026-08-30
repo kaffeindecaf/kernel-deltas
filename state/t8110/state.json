@@ -7,7 +7,7 @@
     "signed": true,
     "dump": ".kcwatch/t8110/26.6.1-23G83.txt",
     "xnu": "12377.162.14~4",
-    "identical": 53,
+    "identical": 59,
     "changed": 13,
     "degraded": 0,
     "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant offsets identical to previous build)"
@@ -18,7 +18,8 @@
       "buildid": "23G71",
       "date": "2026-07-27T17:38:07Z",
       "signed": true,
-      "dump": ".kcwatch/t8110/26.6-23G71.txt"
+      "dump": ".kcwatch/t8110/26.6-23G71.txt",
+      "xnu": "12377.162.13~2"
     },
     {
       "version": "26.6.1",
@@ -27,7 +28,7 @@
       "signed": true,
       "dump": ".kcwatch/t8110/26.6.1-23G83.txt",
       "xnu": "12377.162.14~4",
-      "identical": 53,
+      "identical": 59,
       "changed": 13,
       "degraded": 0,
       "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant offsets identical to previous build)"

@@ -44,15 +44,15 @@ jobs:
         env:
           KCWATCH_DIR: .kcwatch
         run: |
-          python3 scripts/kcwatch.py poll --board t8030
-          python3 scripts/kcwatch.py poll --board t8110
+          ./kernel-deltas poll --board t8030
+          ./kernel-deltas poll --board t8110
 
       - name: Render feed
         env:
           KCWATCH_DIR: .kcwatch
         run: |
-          python3 scripts/kcwatch.py index
-          python3 scripts/kcwatch.py atom
+          ./kernel-deltas index
+          ./kernel-deltas atom
 
       - name: Sync state + reports
         run: |

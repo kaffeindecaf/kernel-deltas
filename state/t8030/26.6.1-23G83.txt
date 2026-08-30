@@ -68,3 +68,9 @@
 0x0000000000000000 <- kernelStruct.thread.machine_kstackptr
 0x0000000000000000 <- kernelStruct.thread.machine_contextData
 0xfffffff009cd4000 <- kernelSymbol.iorvbar
+0x0000000000000000 <- kernelStruct.thread.ast
+0x0000000000000000 <- kernelStruct.thread.ctid
+0x00000000000003a0 <- kernelStruct.thread.t_tro
+0x0000000000000000 <- kernelStruct.thread.machine_upcb
+0x0000000000000000 <- kernelStruct.proc.p_fd
+0x00000000000005dc <- kernelStruct.task.task_exc_guard

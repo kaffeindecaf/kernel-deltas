@@ -12,11 +12,11 @@ kernel struct offsets against the 26.0.1 table in `kexploit/offsets.m`.
 ./xpf-cli kernelcache.img4 out.macho # decompress kernel to raw Mach-O
 ```
 
-No full IPSW handy? The repo's kcwatch script ranged-fetches just the
+No full IPSW handy? The repo's kernel-deltas script ranged-fetches just the
 kernelcache out of an IPSW url (about 20 MB of an 8 GB file):
 
 ```bash
-python3 scripts/kcwatch.py fetch <ipsw-url> kernelcache.img4
+./kernel-deltas fetch <ipsw-url> kernelcache.img4
 ```
 
 Debian/Ubuntu build deps: `sudo apt install liblzfse-dev libblocksruntime-dev`

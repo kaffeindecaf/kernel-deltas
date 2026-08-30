@@ -80,3 +80,9 @@ cpu_ttep found? 0xfffffff007aa5908
 0x0000000000000000 <- kernelStruct.thread.machine_CpuDatap
 0x0000000000000000 <- kernelStruct.thread.machine_kstackptr
 0x0000000000000000 <- kernelStruct.thread.machine_contextData
+0x0000000000000000 <- kernelStruct.thread.ast
+0x0000000000000000 <- kernelStruct.thread.ctid
+0x00000000000003b0 <- kernelStruct.thread.t_tro
+0x0000000000000000 <- kernelStruct.thread.machine_upcb
+0x0000000000000000 <- kernelStruct.proc.p_fd
+0x0000000000000604 <- kernelStruct.task.task_exc_guard

@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""kcwatch.py - kernelcache delta watcher (single fused script).
+"""kernel-deltas - kernelcache delta watcher (single fused script, repo root).
 
-Fuses the former scripts/ modules into one file:
-  kczip.py               zip64 range reader (inlined below)
-  xpf_diff.py            dump parse/diff (inlined below)
-  fetch_kernelcache.py   -> `fetch` subcommand
-  regenerate_dumps.py    -> `regen` subcommand
+Bare invocation opens an interactive menu; every subcommand also works
+directly (./kernel-deltas poll --board t8030).
 
 Subcommands:
+  menu            interactive menu
   poll            check for a new build; fetch+resolve+diff+render if found
   status          show watched state for a board
   diff            diff the two most recent cached builds for the board
@@ -17,6 +15,10 @@ Subcommands:
   atom            render an Atom feed (atom.xml) from the report files
   fetch           ranged-fetch a kernelcache IMG4 out of an IPSW url
   regen           rebuild reports + state from the cached XPF dumps
+
+Fused from the former scripts/ modules: kczip.py (zip64 range reader),
+xpf_diff.py (dump parse/diff), fetch_kernelcache.py (-> fetch),
+regenerate_dumps.py (-> regen).
 
 Options:  --board t8030|t8103|t8110   --version <ver> (backfill)
           --dry-run   --json   (env: KCWATCH_DIR, KCWATCH_FEED_URL, KCWATCH_NO_BANNER)
@@ -35,7 +37,7 @@ import time
 import urllib.request
 import zlib
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # ── arctic wolf palette (from W0lfSword scripts/usbliter8_arctic/colors.py) ──
 class C:
@@ -78,11 +80,11 @@ WOLF_ASCII_ART = r'''
  `-.-"..--""   " /         /  ;
 .-" ..--""        -'          :
 ..--""--.-"         (\      .-(\
-  ..--""              `-\(\/;`
+  ..--""              `-\(\\/;`
     _.                      :
                             ;`-
                            :\
-                            ;  (by kaffein)'''
+                            ;  (by kaffeindecaf)'''
 
 WOLF_GRADIENT = [C.ICE] * 6 + [C.FROST] * 7 + [C.WOLF] * 7 + [C.MOON] * 6
 
@@ -91,9 +93,9 @@ def show_wolf():
     lines = [ln.rstrip() for ln in WOLF_ASCII_ART.strip("\n").splitlines()]
     print()
     for i, art in enumerate(lines):
-        if i == len(lines) - 1 and art.endswith("(by kaffein)"):
-            body = art[: -len("(by kaffein)")]
-            art = body + "%s%s(by kaffein)%s" % (C.AMB, C.B, C.NC)
+        if i == len(lines) - 1 and art.endswith("(by kaffeindecaf)"):
+            body = art[: -len("(by kaffeindecaf)")]
+            art = body + "%s%s(by kaffeindecaf)%s" % (C.DIM, C.B, C.NC)
         color = WOLF_GRADIENT[min(i, len(WOLF_GRADIENT) - 1)]
         print("  %s%s%s" % (color, art, C.NC))
     print()
@@ -262,7 +264,7 @@ def parse_dump(path):
 
 
 # ── config / state ─────────────────────────────────────────────────
-REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
 IPSW_ME = "https://api.ipsw.me/v4/device/%s"
 BOARDS = {
@@ -868,11 +870,75 @@ def cmd_regen(args):
     return 0
 
 
+def _ask_board(args, default=DEFAULT_BOARD):
+    """Prompt for a board, defaulting when empty or unknown."""
+    choice = input("  board [%s]: " % default).strip()
+    if choice in BOARDS:
+        args.board = choice
+    else:
+        args.board = default
+    return args
+
+
+def cmd_menu(args):
+    """Interactive menu (bare invocation)."""
+    while True:
+        print()
+        print("  %s[1]%s poll     check for a new build" % (C.EYE, C.NC))
+        print("  %s[2]%s status   show watched state" % (C.EYE, C.NC))
+        print("  %s[3]%s diff     diff two most recent cached builds" % (C.EYE, C.NC))
+        print("  %s[4]%s verify   offsets.m vs live kernelcache" % (C.EYE, C.NC))
+        print("  %s[5]%s index    render kernel-deltas.md" % (C.EYE, C.NC))
+        print("  %s[6]%s atom     render atom.xml" % (C.EYE, C.NC))
+        print("  %s[7]%s fetch    ranged-fetch a kernelcache IMG4 from an IPSW url" % (C.EYE, C.NC))
+        print("  %s[8]%s regen    rebuild reports/state from cached dumps" % (C.EYE, C.NC))
+        print("  %s[0]%s exit" % (C.EYE, C.NC))
+        try:
+            choice = input("  choice> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if choice == "0" or choice == "":
+            return 0
+        try:
+            if choice == "1":
+                _ask_board(args)
+                cmd_poll(args)
+            elif choice == "2":
+                _ask_board(args)
+                cmd_status(args)
+            elif choice == "3":
+                _ask_board(args)
+                cmd_diff(args)
+            elif choice == "4":
+                _ask_board(args)
+                cmd_verify(args)
+            elif choice == "5":
+                cmd_index(args)
+            elif choice == "6":
+                cmd_atom(args)
+            elif choice == "7":
+                args.url = input("  ipsw url: ").strip()
+                args.out = input("  output [kernelcache.img4]: ").strip() or "kernelcache.img4"
+                if args.url:
+                    cmd_fetch(args)
+            elif choice == "8":
+                cmd_regen(args)
+            else:
+                print("  %sunknown choice%s" % (C.AMB, C.NC))
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        except Exception as e:
+            print("  %s%s%s" % (C.RED, e, C.NC))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", nargs="?", default="poll",
-                    choices=["poll", "status", "diff", "verify", "index", "atom",
+    ap.add_argument("cmd", nargs="?", default="menu",
+                    choices=["menu", "poll", "status", "diff", "verify", "index", "atom",
                              "fetch", "regen"])
     ap.add_argument("--board", default=DEFAULT_BOARD, choices=sorted(BOARDS))
     ap.add_argument("--version", help="process a specific release version instead of the newest (backfill)")
@@ -892,6 +958,8 @@ def main():
         print(json.dumps(st, indent=2))
         return 0
 
+    if args.cmd == "menu":
+        return cmd_menu(args)
     if args.cmd == "poll":
         return cmd_poll(args)
     if args.cmd == "status":
