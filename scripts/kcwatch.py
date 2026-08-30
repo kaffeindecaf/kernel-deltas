@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""kcwatch.py — Kernelcache Delta Watcher (poll → fetch → resolve → diff → render).
+"""kcwatch.py - kernelcache delta watcher (single fused script).
 
-Watches a board's release feed (ipsw.me), and for every new build:
-  - ranged-fetches just the kernelcache (kczip.py, no full IPSW)
-  - resolves every XPF offset (tools/xpf-cli)
-  - diffs against the previous build (xpf_diff.parse)
-  - renders a markdown report + appends to the kernel-deltas.md feed
-  - prints the offsets.m verdict (does the newest offsets block still apply?)
+Fuses the former scripts/ modules into one file:
+  kczip.py               zip64 range reader (inlined below)
+  xpf_diff.py            dump parse/diff (inlined below)
+  fetch_kernelcache.py   -> `fetch` subcommand
+  regenerate_dumps.py    -> `regen` subcommand
 
 Subcommands:
   poll            check for a new build; fetch+resolve+diff+render if found
@@ -16,9 +15,11 @@ Subcommands:
                   the values kexploit/offsets.m would set for that version
   index           render the cumulative multi-board feed (kernel-deltas.md)
   atom            render an Atom feed (atom.xml) from the report files
+  fetch           ranged-fetch a kernelcache IMG4 out of an IPSW url
+  regen           rebuild reports + state from the cached XPF dumps
 
 Options:  --board t8030|t8103|t8110   --version <ver> (backfill)
-          --dry-run   --json   (env: KCWATCH_DIR, KCWATCH_FEED_URL)   --yes
+          --dry-run   --json   (env: KCWATCH_DIR, KCWATCH_FEED_URL, KCWATCH_NO_BANNER)
 
 State/cache lives in <repo>/.w0lfsword/kcwatch/<board>/ (gitignored).
 """
@@ -27,15 +28,241 @@ import datetime as _dt
 import json
 import os
 import re
+import struct
 import subprocess
 import sys
+import time
 import urllib.request
+import zlib
 
+VERSION = "2.0.0"
+
+# ── arctic wolf palette (from W0lfSword scripts/usbliter8_arctic/colors.py) ──
+class C:
+    WOLF  = '\033[38;5;153m'
+    ICE   = '\033[38;5;195m'
+    FROST = '\033[38;5;117m'
+    SNOW  = '\033[38;5;255m'
+    GREY  = '\033[38;5;245m'
+    DIM   = '\033[38;5;240m'
+    STEEL = '\033[38;5;109m'
+    MOON  = '\033[38;5;188m'
+    EYE   = '\033[1;38;5;39m'
+    RED   = '\033[0;31m'
+    GRN   = '\033[0;32m'
+    AMB   = '\033[1;33m'
+    NC    = '\033[0m'
+    B     = '\033[1m'
+    D     = '\033[2m'
+
+# Arctic wolf ASCII art - original artist unknown, adapted (kaffeindecaf W0lfSword)
+WOLF_ASCII_ART = r'''
+                              __
+                            .d$$b
+                          .' TO$;\
+                         /  : TP._;
+                        / _.;  :Tb|
+                       /   /   ;j$j
+                   _.-"       d$$$$
+                 .' ..       d$$$$;
+                /  /P'      d$$$$P. |\
+               /   "      .d$$$P' |\^"l
+             .'           `T$P^"""""  :
+         ._.'      _.'                ;
+      `-.-".-'-' ._.       _.-"    .-"
+    `.-" _____  ._              .-"
+   -(.g$$$$$$$b.              .'
+     ""^^T$$$P^)            .(:
+       _/  -"  /.'         /:/;
+    ._.'-'`-'  ")/         /;/;
+ `-.-"..--""   " /         /  ;
+.-" ..--""        -'          :
+..--""--.-"         (\      .-(\
+  ..--""              `-\(\/;`
+    _.                      :
+                            ;`-
+                           :\
+                            ;  (by kaffein)'''
+
+WOLF_GRADIENT = [C.ICE] * 6 + [C.FROST] * 7 + [C.WOLF] * 7 + [C.MOON] * 6
+
+
+def show_wolf():
+    lines = [ln.rstrip() for ln in WOLF_ASCII_ART.strip("\n").splitlines()]
+    print()
+    for i, art in enumerate(lines):
+        if i == len(lines) - 1 and art.endswith("(by kaffein)"):
+            body = art[: -len("(by kaffein)")]
+            art = body + "%s%s(by kaffein)%s" % (C.AMB, C.B, C.NC)
+        color = WOLF_GRADIENT[min(i, len(WOLF_GRADIENT) - 1)]
+        print("  %s%s%s" % (color, art, C.NC))
+    print()
+
+
+def show_banner():
+    print("  %s%skernel-deltas%s" % (C.SNOW, C.B, C.NC))
+    print("  %skcwatch - kernelcache delta feed / XPF resolve / t8030+t8110%s" % (C.FROST, C.NC))
+    print()
+
+
+# ── zip64 range reader (was kczip.py) ──────────────────────────────
+RETRIES = 3
+BACKOFF = 2.0          # seconds, exponential
+RANGE_TIMEOUT = 60
+HEAD_TIMEOUT = 30
+TAIL_SIZE = 262144     # bytes pulled from the end to find the EOCD
+
+
+def fetch_range(url, start, length, retries=RETRIES, timeout=RANGE_TIMEOUT):
+    """Fetch url[start:start+length] with exponential-backoff retries."""
+    last = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(
+                url, headers={"Range": "bytes=%d-%d" % (start, start + length - 1)})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as e:          # noqa: BLE001 - retry everything
+            last = e
+            time.sleep(BACKOFF * (attempt + 1))
+    raise RuntimeError("range fetch %d+%d failed after %d tries: %s"
+                       % (start, length, retries, last))
+
+
+def total_size(url):
+    with urllib.request.urlopen(urllib.request.Request(url, method="HEAD"),
+                                timeout=HEAD_TIMEOUT) as r:
+        return int(r.headers["Content-Length"])
+
+
+def find_eocd(tail):
+    """Return (kind, *fields) locating the central directory.
+    kind == 'classic' -> (cd_size, cd_offset); 'zip64' -> zip64 EOCD offset."""
+    for i in range(len(tail) - 22, 0, -1):
+        if tail[i:i + 4] == b"PK\x05\x06":
+            comment_len = struct.unpack_from("<H", tail, i + 20)[0]
+            if i + 22 + comment_len == len(tail):
+                cd_size, cd_offset = struct.unpack_from("<II", tail, i + 12)
+                if cd_offset == 0xFFFFFFFF or cd_size == 0xFFFFFFFF:
+                    return ("zip64", i)
+                return ("classic", cd_size, cd_offset)
+    raise RuntimeError("no valid EOCD record in the %d-byte tail" % len(tail))
+
+
+def _zip64_entry_sizes(extra, ucsize, csize, lho):
+    """Resolve 0xFFFFFFFF placeholders via the entry's zip64 extra (ID 0x0001).
+    Fields appear in order ucsize, csize, lho - only those that were 0xFFFFFFFF."""
+    epos = 0
+    while epos + 4 <= len(extra):
+        eid, esz = struct.unpack_from("<HH", extra, epos)
+        if eid == 0x0001:
+            eo = epos + 4
+            if ucsize == 0xFFFFFFFF:
+                ucsize = struct.unpack_from("<Q", extra, eo)[0]
+                eo += 8
+            if csize == 0xFFFFFFFF:
+                csize = struct.unpack_from("<Q", extra, eo)[0]
+                eo += 8
+            if lho == 0xFFFFFFFF:
+                lho = struct.unpack_from("<Q", extra, eo)[0]
+            return ucsize, csize, lho
+        epos += 4 + esz
+    raise RuntimeError("zip64 placeholders present but no zip64 extra found")
+
+
+def locate_entry(url, prefix="kernelcache.release.", tail_size=TAIL_SIZE):
+    """Return an entry dict for the first central-directory entry whose
+    name starts with prefix: {name, csize, ucsize, lho, crc32, method}."""
+    total = total_size(url)
+    tail = fetch_range(url, total - tail_size, tail_size)
+    kind, *rest = find_eocd(tail)
+    if kind == "zip64":
+        loc = rest[0] - 20
+        z64_off = struct.unpack_from("<Q", tail, loc + 8)[0]
+        chunk = fetch_range(url, z64_off, 96)
+        cd_size = struct.unpack_from("<Q", chunk, 40)[0]
+        cd_offset = struct.unpack_from("<Q", chunk, 48)[0]
+    else:
+        cd_size, cd_offset = rest
+    cds = fetch_range(url, cd_offset, cd_size)
+    pos = 0
+    while pos < len(cds) - 46:
+        if cds[pos:pos + 4] != b"PK\x01\x02":
+            pos += 1
+            continue
+        name_len, extra_len, comment_len = struct.unpack_from("<HHH", cds, pos + 28)
+        name = cds[pos + 46:pos + 46 + name_len].decode("utf-8", "replace")
+        if name.startswith(prefix):
+            crc32 = struct.unpack_from("<I", cds, pos + 16)[0]
+            method = struct.unpack_from("<H", cds, pos + 10)[0]
+            ucsize = struct.unpack_from("<I", cds, pos + 24)[0]
+            csize = struct.unpack_from("<I", cds, pos + 20)[0]
+            lho = struct.unpack_from("<I", cds, pos + 42)[0]
+            extra = cds[pos + 46 + name_len:pos + 46 + name_len + extra_len]
+            if 0xFFFFFFFF in (ucsize, csize, lho):
+                ucsize, csize, lho = _zip64_entry_sizes(extra, ucsize, csize, lho)
+            return {"name": name, "csize": csize, "ucsize": ucsize,
+                    "lho": lho, "crc32": crc32, "method": method}
+        pos += 46 + name_len + extra_len + comment_len
+    raise RuntimeError("no entry starting with %r in the central directory" % prefix)
+
+
+def fetch_entry(url, entry, out_path, decompress=True):
+    """Fetch entry bytes (Range to its data span), verify CRC32, optionally
+    raw-deflate decompress (zip method 8), and write to out_path.
+    Returns (out_path, byte_count_written).
+    NOTE: the zip CRC-32 covers the UNCOMPRESSED data - decompress first,
+    then verify (deflate entries with the data-descriptor flag set are the
+    norm in Apple IPSWs; stored entries verify as-is)."""
+    lh = fetch_range(url, entry["lho"], 64)
+    lname_len, lextra_len = struct.unpack_from("<HH", lh, 26)
+    data_start = entry["lho"] + 30 + lname_len + lextra_len
+    data = fetch_range(url, data_start, entry["csize"])
+    if decompress:
+        if entry["method"] == 8:
+            data = zlib.decompressobj(-15).decompress(data)
+        elif entry["method"] != 0:
+            raise RuntimeError("unsupported compression method %d" % entry["method"])
+    if (zlib.crc32(data) & 0xFFFFFFFF) != entry["crc32"]:
+        raise RuntimeError("CRC32 mismatch for %s (got %08x want %08x)"
+                           % (entry["name"], zlib.crc32(data) & 0xFFFFFFFF,
+                              entry["crc32"]))
+    with open(out_path, "wb") as fh:
+        fh.write(data)
+    return out_path, len(data)
+
+
+# ── dump parsing (was xpf_diff.py) ─────────────────────────────────
+# xpf-cli prints one line per resolved item:
+#     0x0000000000000310 <- kernelStruct.task.itk_space
+#     0x0000000000000000 <- kernelStruct.thread.ast [UNRESOLVED/crash]
+# plus header lines starting with '#'.
+HEAD_RE = re.compile(r"^# (kernel|darwin|xnu|os): (.*)")
+ITEM_RE = re.compile(r"^0x([0-9a-f]+) <- (.+)$")
+UNRES_RE = re.compile(r"^0x[0-9a-f]+ <- (.+?) \[UNRESOLVED")
+
+
+def parse_dump(path):
+    hdr, items = {}, {}
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            m = HEAD_RE.match(line)
+            if m:
+                hdr[m.group(1)] = m.group(2)
+                continue
+            m = UNRES_RE.match(line)
+            if m:
+                items[m.group(1)] = None
+                continue
+            m = ITEM_RE.match(line)
+            if m:
+                items[m.group(2)] = int(m.group(1), 16)
+    return hdr, items
+
+
+# ── config / state ─────────────────────────────────────────────────
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS = os.path.join(REPO_DIR, "scripts")
-sys.path.insert(0, SCRIPTS)
-import kczip          # noqa: E402
-from xpf_diff import parse as parse_dump   # noqa: E402
 
 IPSW_ME = "https://api.ipsw.me/v4/device/%s"
 BOARDS = {
@@ -50,10 +277,9 @@ VERSION_RE = re.compile(r'SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO\(@"(\d+\.\d+)"
 KC_NAME = "kernelcache.release."          # prefix in the IPSW zip
 
 
-# ── state / cache layout ──────────────────────────────────────────
-# KCWATCH_DIR overrides the base (default: <repo>/.w0lfsword/kcwatch)
-# so the public feed repo can keep everything under state/.
 def kc_base():
+    """KCWATCH_DIR overrides the base (default: <repo>/.w0lfsword/kcwatch)
+    so the public feed repo can keep everything under state/."""
     return os.environ.get("KCWATCH_DIR") or os.path.join(REPO_DIR, ".w0lfsword", "kcwatch")
 
 
@@ -84,7 +310,7 @@ def kc_path(board, rel):
     return os.path.join(kc_dir(board), rel)
 
 
-# ── ipsw.me release feed ──────────────────────────────────────────
+# ── ipsw.me release feed ───────────────────────────────────────────
 def api_get(url):
     with urllib.request.urlopen(url, timeout=30) as r:
         return json.load(r)
@@ -118,16 +344,16 @@ def newest_release(board_cfg, prefer_signed=True):
     return rels[-1], rels
 
 
-# ── pipeline steps ────────────────────────────────────────────────
+# ── pipeline steps ─────────────────────────────────────────────────
 def fetch_kc(board_cfg, rel, board, dry_run=False):
     """Ranged-fetch + decompress the kernelcache IMG4 for a release."""
-    entry = kczip.locate_entry(rel["url"], prefix=KC_NAME)
+    entry = locate_entry(rel["url"], prefix=KC_NAME)
     out = kc_path(board, "%s-%s.img4" % (rel["version"], rel["buildid"]))
     if dry_run:
         print("  [fetch] would download %s (%d bytes)" % (entry["name"], entry["csize"]))
         return out
     print("  [fetch] %s (%.1f MB)..." % (entry["name"], entry["csize"] / 1e6))
-    path, n = kczip.fetch_entry(rel["url"], entry, out)
+    path, n = fetch_entry(rel["url"], entry, out)
     print("  [fetch] saved %s (%.1f MB, crc verified)" % (path, n / 1e6))
     return out
 
@@ -150,7 +376,7 @@ def resolve_kc(kc_file, board, dry_run=False):
 
 
 def summarize_diff(a_path, b_path):
-    """Extend xpf_diff.parse with the resolved→UNRESOLVED (degraded) class."""
+    """Extend the dump diff with the resolved->UNRESOLVED (degraded) class."""
     ha, ia = parse_dump(a_path)
     hb, ib = parse_dump(b_path)
     names = sorted(set(ia) | set(ib))
@@ -164,7 +390,7 @@ def summarize_diff(a_path, b_path):
         elif va is None or vb is None:
             if va != vb:
                 degraded.append(n)
-            else:                       # both unresolved → same
+            else:                       # both unresolved -> same
                 same.append(n)
         elif va == vb:
             same.append(n)
@@ -200,7 +426,7 @@ OFF_VAR_RE = re.compile(
 
 
 def parse_offsets_m():
-    """{version_threshold: {var: value}} — last-wins per block."""
+    """{version_threshold: {var: value}} - last-wins per block."""
     blocks = {}
     cur = None
     try:
@@ -229,6 +455,175 @@ def effective_offsets(version):
         if tuple(int(x) for x in thr.split(".")) <= key:
             eff.update(blocks[thr])
     return eff
+
+
+def offsets_verdict(version, diff):
+    """Which offsets.m block applies to `version`, and do the struct offsets
+    still match the previous build? Struct items are kernelStruct.* /
+    kernelConstant.* - symbol addresses shift every build and are noise."""
+    thr = offsets_thresholds()
+    if not thr:
+        return "offsets.m not found: verdict unavailable"
+    applicable = [t for t in thr if tuple(int(x) for x in t.split("."))
+                  <= tuple(int(x) for x in version.split("."))]
+    if not applicable:
+        return "NO: version %s is BELOW the lowest offsets.m block (>= %s)" % (version, thr[0])
+    block = applicable[-1]
+    structs = [n for n in diff["changed"] + diff["degraded"] + diff["only_in_a"] + diff["only_in_b"]
+               if n.startswith(("kernelStruct.", "kernelConstant."))]
+    if structs:
+        return ("NO: offsets.m block '>= %s' does NOT cover %s: struct/constant "
+                "items moved (%s)" % (block, version, ", ".join(structs[:4])))
+    return ("YES: offsets.m block '>= %s' applies to %s (all struct/constant "
+            "offsets identical to previous build)" % (block, version))
+
+
+def render_report(board_cfg, rel, prev, diff, verdict):
+    d = diff
+    lines = []
+    lines.append("## iOS %s (%s) - %s - %s" % (
+        rel["version"], rel["buildid"], board_cfg["label"], _dt.date.today().isoformat()))
+    lines.append("")
+    lines.append("xnu: %s -> %s" % (d["xnu_a"] or "?", d["xnu_b"] or "?"))
+    lines.append("resolved: A=%d  B=%d   identical: %d   changed: %d   degraded: %d"
+                 % (d["resolved_a"], d["resolved_b"], len(d["identical"]), len(d["changed"]),
+                    len(d["degraded"])))
+    if d["degraded"]:
+        lines.append("degraded (resolved <-> UNRESOLVED): %d" % len(d["degraded"]))
+    lines.append("")
+    if d["changed"]:
+        lines.append("CHANGED:")
+        for n in d["changed"]:
+            va, vb = d.get("changed_values", {}).get(n, ["?", "?"])
+            lines.append("  %s: 0x%016x -> 0x%016x" % (n, va, vb))
+    for surf in ("kernelConstant.nsysent", "kernelConstant.mach_trap_count"):
+        if surf in d.get("changed_values", {}):
+            va, vb = d["changed_values"][surf]
+            lines.append("")
+            lines.append("SURFACE: %s 0x%x -> 0x%x - syscall table changed, "
+                         "new attack surface" % (surf, va, vb))
+    if d["degraded"]:
+        lines.append("")
+        lines.append("DEGRADED (structural change, investigate):")
+        for n in d["degraded"]:
+            lines.append("  %s" % n)
+    if d["only_in_a"] or d["only_in_b"]:
+        lines.append("")
+        lines.append("ONE-SIDED:")
+        for n in d["only_in_a"]:
+            lines.append("  %s: only in previous" % n)
+        for n in d["only_in_b"]:
+            lines.append("  %s: only in new build" % n)
+    lines.append("")
+    lines.append("VERDICT: %s" % verdict)
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ── subcommands ────────────────────────────────────────────────────
+def cmd_poll(args):
+    board_cfg = BOARDS[args.board]
+    os.makedirs(kc_dir(args.board), exist_ok=True)
+    st = load_state(args.board)
+    rels = list_releases(board_cfg)
+    if args.version:
+        rel = next((r for r in rels if r["version"] == args.version), None)
+        if not rel:
+            print("no release iOS %s for %s" % (args.version, args.board))
+            return 1
+    else:
+        rel = newest_release(board_cfg)[0] if not args.dry_run else (rels[-1] if rels else None)
+    if not rel:
+        print("no releases for %s" % board_cfg["device"])
+        return 1
+    last = st.get("last") or {}
+    same = last.get("buildid") == rel["buildid"]
+    print("board: %s   newest: iOS %s (%s)  signed=%s  date=%s" % (
+        args.board, rel["version"], rel["buildid"], rel["signed"], rel["date"]))
+    if same:
+        print("no new build since %s, nothing to do" % last.get("version"))
+        return 0
+    if args.dry_run:
+        print("dry-run: would fetch+resolve+diff iOS %s (%s)" % (rel["version"], rel["buildid"]))
+        return 0
+    kc = fetch_kc(board_cfg, rel, args.board)
+    dump = resolve_kc(kc, args.board)
+    diff = verdict = None
+    if st.get("last") and st["last"].get("dump"):
+        prev_dump = st["last"]["dump"]
+        diff = summarize_diff(prev_dump, dump)
+        verdict = offsets_verdict(rel["version"], diff)
+        report = render_report(board_cfg, rel, st["last"], diff, verdict)
+        rpath = kc_path(args.board, "reports")
+        os.makedirs(rpath, exist_ok=True)
+        rfile = os.path.join(rpath, "%s-%s-%s.md" % (args.board, rel["version"], rel["buildid"]))
+        with open(rfile, "w") as fh:
+            fh.write(report)
+        feed = os.path.join(rpath, "kernel-deltas.md")
+        with open(feed, "a") as fh:
+            fh.write(report)
+            fh.write("\n---\n\n")
+        print(report)
+        print("report: %s" % rfile)
+    else:
+        print("baseline build (no previous dump to diff against)")
+        thr = offsets_thresholds()
+        top = thr[-1] if thr else "?"
+        print("VERDICT: %s, offsets.m block '>= %s' is the highest applicable; "
+              "structural identity unverified (no previous build cached)" % (args.board, top))
+    st["last"] = {"version": rel["version"], "buildid": rel["buildid"],
+                  "date": rel["date"], "signed": rel["signed"], "dump": dump}
+    # carry the diff summary into history so `index` can render the table
+    if diff is not None:
+        st["last"].update({
+            "xnu": diff.get("xnu_b", "?"),
+            "identical": len(diff.get("identical", [])),
+            "changed": len(diff.get("changed", [])),
+            "degraded": len(diff.get("degraded", [])),
+            "verdict": verdict or "?",
+        })
+    st["history"] = [h for h in st.get("history", [])
+                     if h.get("buildid") != rel["buildid"]]
+    st["history"].append(st["last"])
+    save_state(args.board, st)
+    return 0
+
+
+def cmd_status(args):
+    st = load_state(args.board)
+    last = st.get("last")
+    if not last:
+        print("%s: no state yet - run 'kcwatch poll'" % args.board)
+        return 0
+    print("%s: last seen iOS %s (%s, %s) signed=%s" % (
+        args.board, last["version"], last["buildid"], last["date"], last["signed"]))
+    print("  dump: %s" % last.get("dump"))
+    print("  history: %d build(s)" % len(st.get("history", [])))
+    return 0
+
+
+def cmd_diff(args):
+    st = load_state(args.board)
+    if not st.get("history") or len(st["history"]) < 2:
+        print("need at least 2 cached builds for %s (run poll twice)" % args.board)
+        return 1
+    h = st["history"]
+    a, b = h[-2], h[-1]
+    d = summarize_diff(a["dump"], b["dump"])
+    print("A: iOS %s (%s)  B: iOS %s (%s)" % (a["version"], a["buildid"], b["version"], b["buildid"]))
+    print("resolved: A=%d B=%d   identical=%d  changed=%d  degraded=%d  one-sided=%d" % (
+        d["resolved_a"], d["resolved_b"], len(d["identical"]), len(d["changed"]),
+        len(d["degraded"]), len(d["only_in_a"]) + len(d["only_in_b"])))
+    for n in d["changed"]:
+        print("  CHANGED %s" % n)
+    for n in d["degraded"]:
+        print("  DEGRADED %s" % n)
+    for n in d["only_in_a"]:
+        print("  ONLY-A %s" % n)
+    for n in d["only_in_b"]:
+        print("  ONLY-B %s" % n)
+    print("VERDICT: %s" % offsets_verdict(b["version"], d))
+    return 0
 
 
 def cmd_verify(args):
@@ -364,171 +759,112 @@ def cmd_atom(args):
     return 0
 
 
-def offsets_verdict(version, diff):
-    """Which offsets.m block applies to `version`, and do the struct offsets
-    still match the previous build? Struct items are kernelStruct.* /
-    kernelConstant.* — symbol addresses shift every build and are noise."""
-    thr = offsets_thresholds()
-    if not thr:
-        return "offsets.m not found: verdict unavailable"
-    applicable = [t for t in thr if tuple(int(x) for x in t.split("."))
-                  <= tuple(int(x) for x in version.split("."))]
-    if not applicable:
-        return "NO: version %s is BELOW the lowest offsets.m block (>= %s)" % (version, thr[0])
-    block = applicable[-1]
-    structs = [n for n in diff["changed"] + diff["degraded"] + diff["only_in_a"] + diff["only_in_b"]
-               if n.startswith(("kernelStruct.", "kernelConstant."))]
-    if structs:
-        return ("NO: offsets.m block '>= %s' does NOT cover %s: struct/constant "
-                "items moved (%s)" % (block, version, ", ".join(structs[:4])))
-    return ("YES: offsets.m block '>= %s' applies to %s (all struct/constant "
-            "offsets identical to previous build)" % (block, version))
-
-
-def render_report(board_cfg, rel, prev, diff, verdict):
-    d = diff
-    lines = []
-    lines.append("## iOS %s (%s) - %s - %s" % (
-        rel["version"], rel["buildid"], board_cfg["label"], _dt.date.today().isoformat()))
-    lines.append("")
-    lines.append("xnu: %s -> %s" % (d["xnu_a"] or "?", d["xnu_b"] or "?"))
-    lines.append("resolved: A=%d  B=%d   identical: %d   changed: %d   degraded: %d"
-                 % (d["resolved_a"], d["resolved_b"], len(d["identical"]), len(d["changed"]),
-                    len(d["degraded"])))
-    if d["degraded"]:
-        lines.append("degraded (resolved <-> UNRESOLVED): %d" % len(d["degraded"]))
-    lines.append("")
-    if d["changed"]:
-        lines.append("CHANGED:")
-        for n in d["changed"]:
-            va, vb = d.get("changed_values", {}).get(n, ["?", "?"])
-            lines.append("  %s: 0x%016x -> 0x%016x" % (n, va, vb))
-    for surf in ("kernelConstant.nsysent", "kernelConstant.mach_trap_count"):
-        if surf in d.get("changed_values", {}):
-            va, vb = d["changed_values"][surf]
-            lines.append("")
-            lines.append("SURFACE: %s 0x%x -> 0x%x - syscall table changed, "
-                         "new attack surface" % (surf, va, vb))
-    if d["degraded"]:
-        lines.append("")
-        lines.append("DEGRADED (structural change, investigate):")
-        for n in d["degraded"]:
-            lines.append("  %s" % n)
-    if d["only_in_a"] or d["only_in_b"]:
-        lines.append("")
-        lines.append("ONE-SIDED:")
-        for n in d["only_in_a"]:
-            lines.append("  %s: only in previous" % n)
-        for n in d["only_in_b"]:
-            lines.append("  %s: only in new build" % n)
-    lines.append("")
-    lines.append("VERDICT: %s" % verdict)
-    lines.append("")
-    return "\n".join(lines)
-
-# ── subcommands ───────────────────────────────────────────────────
-def cmd_poll(args):
-    board_cfg = BOARDS[args.board]
-    os.makedirs(kc_dir(args.board), exist_ok=True)
-    st = load_state(args.board)
-    rels = list_releases(board_cfg)
-    if args.version:
-        rel = next((r for r in rels if r["version"] == args.version), None)
-        if not rel:
-            print("no release iOS %s for %s" % (args.version, args.board))
-            return 1
-    else:
-        rel = newest_release(board_cfg)[0] if not args.dry_run else (rels[-1] if rels else None)
-    if not rel:
-        print("no releases for %s" % board_cfg["device"])
-        return 1
-    last = st.get("last") or {}
-    same = last.get("buildid") == rel["buildid"]
-    print("board: %s   newest: iOS %s (%s)  signed=%s  date=%s" % (
-        args.board, rel["version"], rel["buildid"], rel["signed"], rel["date"]))
-    if same:
-        print("no new build since %s, nothing to do" % last.get("version"))
-        return 0
-    if args.dry_run:
-        print("dry-run: would fetch+resolve+diff iOS %s (%s)" % (rel["version"], rel["buildid"]))
-        return 0
-    kc = fetch_kc(board_cfg, rel, args.board)
-    dump = resolve_kc(kc, args.board)
-    diff = verdict = None
-    if st.get("last") and st["last"].get("dump"):
-        prev_dump = st["last"]["dump"]
-        diff = summarize_diff(prev_dump, dump)
-        verdict = offsets_verdict(rel["version"], diff)
-        report = render_report(board_cfg, rel, st["last"], diff, verdict)
-        rpath = kc_path(args.board, "reports")
-        os.makedirs(rpath, exist_ok=True)
-        rfile = os.path.join(rpath, "%s-%s-%s.md" % (args.board, rel["version"], rel["buildid"]))
-        with open(rfile, "w") as fh:
-            fh.write(report)
-        feed = os.path.join(rpath, "kernel-deltas.md")
-        with open(feed, "a") as fh:
-            fh.write(report)
-            fh.write("\n---\n\n")
-        print(report)
-        print("report: %s" % rfile)
-    else:
-        print("baseline build (no previous dump to diff against)")
-        thr = offsets_thresholds()
-        top = thr[-1] if thr else "?"
-        print("VERDICT: %s, offsets.m block '>= %s' is the highest applicable; "
-              "structural identity unverified (no previous build cached)" % (args.board, top))
-    st["last"] = {"version": rel["version"], "buildid": rel["buildid"],
-                  "date": rel["date"], "signed": rel["signed"], "dump": dump}
-    # carry the diff summary into history so `index` can render the table
-    if diff is not None:
-        st["last"].update({
-            "xnu": diff.get("xnu_b", "?"),
-            "identical": len(diff.get("identical", [])),
-            "changed": len(diff.get("changed", [])),
-            "degraded": len(diff.get("degraded", [])),
-            "verdict": verdict or "?",
-        })
-    st["history"] = [h for h in st.get("history", [])
-                     if h.get("buildid") != rel["buildid"]]
-    st["history"].append(st["last"])
-    save_state(args.board, st)
+def cmd_fetch(args):
+    """Ranged-fetch a kernelcache IMG4 out of an IPSW url (was fetch_kernelcache.py)."""
+    out = args.out or "/tmp/kernelcache.img4"
+    total = total_size(args.url)
+    print("IPSW size: %.2f GB" % (total / 1e9))
+    entry = locate_entry(args.url, prefix=args.prefix)
+    print("found: %s  csize=%d  ucsize=%d  crc32=%08x" % (
+        entry["name"], entry["csize"], entry["ucsize"], entry["crc32"]))
+    path, n = fetch_entry(args.url, entry, out)
+    print("saved %s (%.1f MB, %s)" % (
+        path, n / 1e6, "decompressed" if entry["method"] == 8 else "stored"))
     return 0
 
 
-def cmd_status(args):
-    st = load_state(args.board)
-    last = st.get("last")
-    if not last:
-        print("%s: no state yet — run 'kcwatch poll'" % args.board)
-        return 0
-    print("%s: last seen iOS %s (%s, %s) signed=%s" % (
-        args.board, last["version"], last["buildid"], last["date"], last["signed"]))
-    print("  dump: %s" % last.get("dump"))
-    print("  history: %d build(s)" % len(st.get("history", [])))
-    return 0
+def _release_dates():
+    """board -> {version: releasedate} from ipsw.me (best effort)."""
+    out = {}
+    for board, cfg in BOARDS.items():
+        try:
+            data = api_get(IPSW_ME % cfg["device"])
+        except Exception:
+            out[board] = {}
+            continue
+        d = {}
+        for f in (data.get("releases") or data.get("firmwares") or []):
+            v = f.get("version")
+            if v:
+                d[v] = f.get("releasedate") or f.get("date") or ""
+        out[board] = d
+    return out
 
 
-def cmd_diff(args):
-    st = load_state(args.board)
-    if not st.get("history") or len(st["history"]) < 2:
-        print("need at least 2 cached builds for %s (run poll twice)" % args.board)
+def cmd_regen(args):
+    """Rebuild reports + state + feed from the cached XPF dumps
+    (was regenerate_dumps.py). Diffs consecutive builds per board."""
+    base = kc_base()
+    dates = _release_dates()
+    boards = sorted(d for d in os.listdir(base)
+                    if os.path.isdir(os.path.join(base, d)) and d in BOARDS)
+    if not boards:
+        print("no board dirs under %s" % base)
         return 1
-    h = st["history"]
-    a, b = h[-2], h[-1]
-    d = summarize_diff(a["dump"], b["dump"])
-    print("A: iOS %s (%s)  B: iOS %s (%s)" % (a["version"], a["buildid"], b["version"], b["buildid"]))
-    print("resolved: A=%d B=%d   identical=%d  changed=%d  degraded=%d  one-sided=%d" % (
-        d["resolved_a"], d["resolved_b"], len(d["identical"]), len(d["changed"]),
-        len(d["degraded"]), len(d["only_in_a"]) + len(d["only_in_b"])))
-    for n in d["changed"]:
-        print("  CHANGED %s" % n)
-    for n in d["degraded"]:
-        print("  DEGRADED %s" % n)
-    for n in d["only_in_a"]:
-        print("  ONLY-A %s" % n)
-    for n in d["only_in_b"]:
-        print("  ONLY-B %s" % n)
-    print("VERDICT: %s" % offsets_verdict(b["version"], d))
+    for board in boards:
+        bdir = os.path.join(base, board)
+        dumps = sorted(f for f in os.listdir(bdir) if f.endswith(".txt"))
+        if not dumps:
+            print("%s: no dumps, skipping" % board)
+            continue
+        # filename <version>-<buildid>.txt; sort by version then buildid
+        def key(f):
+            ver, _, _ = f[:-4].partition("-")
+            return (tuple(int(x) for x in ver.split(".")), f)
+        dumps.sort(key=key)
+        cfg = BOARDS[board]
+        hist = []
+        prev = None
+        prev_dump = None
+        rdir = os.path.join(bdir, "reports")
+        os.makedirs(rdir, exist_ok=True)
+        for fn in dumps:
+            ver, _, bid = fn[:-4].partition("-")
+            dump = os.path.join(bdir, fn)
+            hdr, _ = parse_dump(dump)
+            entry = {"version": ver, "buildid": bid,
+                     "date": dates.get(board, {}).get(ver, ""),
+                     "signed": True,
+                     "dump": os.path.relpath(dump, REPO_DIR),
+                     "xnu": hdr.get("xnu", "?")}
+            if prev is not None and prev_dump is not None:
+                d = summarize_diff(prev_dump, dump)
+                verdict = offsets_verdict(ver, d)
+                report = render_report(cfg, {"version": ver, "buildid": bid},
+                                       prev, d, verdict)
+                with open(os.path.join(rdir, "%s-%s-%s.md" % (board, ver, bid)), "w") as fh:
+                    fh.write(report)
+                entry.update({"identical": len(d["identical"]),
+                              "changed": len(d["changed"]),
+                              "degraded": len(d["degraded"]),
+                              "verdict": verdict})
+                print("%s: %s -> %s  same=%d changed=%d deg=%d  %s" % (
+                    board, prev["version"], ver, len(d["identical"]),
+                    len(d["changed"]), len(d["degraded"]), verdict.split(".")[0]))
+            else:
+                print("%s: %s baseline" % (board, ver))
+            hist.append(entry)
+            prev, prev_dump = entry, dump
+        st = {"board": board, "last": hist[-1], "history": hist}
+        with open(os.path.join(bdir, "state.json"), "w") as fh:
+            json.dump(st, fh, indent=2)
+            fh.write("\n")
+        # sync into state/ + reports/ (the committed layout)
+        for fn in dumps:
+            dst = os.path.join(REPO_DIR, "state", board, fn)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(os.path.join(bdir, fn)) as f, open(dst, "w") as g:
+                g.write(f.read())
+        with open(os.path.join(bdir, "state.json")) as f, \
+             open(os.path.join(REPO_DIR, "state", board, "state.json"), "w") as g:
+            g.write(f.read())
+        for fn in os.listdir(rdir):
+            if not fn.endswith(".md"):
+                continue
+            with open(os.path.join(rdir, fn)) as f, \
+                 open(os.path.join(REPO_DIR, "reports", fn), "w") as g:
+                g.write(f.read())
+        print("%s: synced state/ + reports/" % board)
     return 0
 
 
@@ -536,17 +872,24 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", nargs="?", default="poll",
-                    choices=["poll", "status", "diff", "verify", "index", "atom"])
+                    choices=["poll", "status", "diff", "verify", "index", "atom",
+                             "fetch", "regen"])
     ap.add_argument("--board", default=DEFAULT_BOARD, choices=sorted(BOARDS))
     ap.add_argument("--version", help="process a specific release version instead of the newest (backfill)")
+    ap.add_argument("--prefix", default=KC_NAME, help="zip entry name prefix (fetch)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("url", nargs="?", help="IPSW url (fetch)")
+    ap.add_argument("out", nargs="?", help="output .img4 path (fetch)")
     args = ap.parse_args()
 
+    if not args.json and not os.environ.get("KCWATCH_NO_BANNER"):
+        show_wolf()
+        show_banner()
+
     if args.json:
-        import json as _json
         st = load_state(args.board)
-        print(_json.dumps(st, indent=2))
+        print(json.dumps(st, indent=2))
         return 0
 
     if args.cmd == "poll":
@@ -561,6 +904,13 @@ def main():
         return cmd_index(args)
     if args.cmd == "atom":
         return cmd_atom(args)
+    if args.cmd == "fetch":
+        if not args.url:
+            print("usage: kcwatch.py fetch <ipsw-url> [out.img4]")
+            return 1
+        return cmd_fetch(args)
+    if args.cmd == "regen":
+        return cmd_regen(args)
     return 0
 
 

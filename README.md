@@ -114,16 +114,20 @@ cd W0lfSword
 ./W0lfSword kcwatch verify --board t8030   # offsets.m vs live kernelcache
 ```
 
-Or drive this repo directly:
+Or drive this repo directly (one fused script, wolf banner included):
 
 ```bash
 python3 scripts/kcwatch.py poll --board t8030   # fetch -> resolve -> diff -> report
 python3 scripts/kcwatch.py verify --board t8030 # is the offsets table still valid?
 python3 scripts/kcwatch.py index                # render kernel-deltas.md
 python3 scripts/kcwatch.py atom                 # render atom.xml
+python3 scripts/kcwatch.py fetch <ipsw-url> kc.img4  # ranged-fetch a kernelcache, no full IPSW
+python3 scripts/kcwatch.py regen                # rebuild reports/state from cached dumps
 ```
 
-Needs the prebuilt tools/xpf-cli binary and liblzfse1.
+Everything is in scripts/kcwatch.py - the ranged fetch (kczip), the dump
+diff (xpf_diff), the standalone fetcher, and the regenerator were fused in
+as subcommands. Needs the prebuilt tools/xpf-cli binary and liblzfse1.
 
 ## Adding offsets
 
@@ -158,9 +162,9 @@ Steps:
 5. Rebuild the feed artifacts:
 
    ```bash
-   python3 scripts/regenerate_dumps.py        # reports + state from the new dumps
-   python3 scripts/kcwatch.py index           # kernel-deltas.md
-   python3 scripts/kcwatch.py atom            # atom.xml
+   python3 scripts/kcwatch.py regen             # reports + state from the new dumps
+   python3 scripts/kcwatch.py index             # kernel-deltas.md
+   python3 scripts/kcwatch.py atom              # atom.xml
    ```
 
 6. Commit the new dumps, reports, feed, and the rebuilt binary.
@@ -184,7 +188,8 @@ kernel-deltas.md      the feed index (regenerated each run)
 atom.xml              RSS/Atom feed
 reports/              one markdown report per release pair
 state/<board>/        raw XPF dumps + watcher state (the evidence)
-scripts/              kcwatch.py (orchestrator) - kczip.py (ranged fetch) - xpf_diff.py
+scripts/              kcwatch.py (single fused script: watch pipeline, ranged
+                      fetch, dump diff, feed rendering, regenerator)
 tools/xpf-cli/        the prebuilt patchfinder (source + shims + binary)
 kexploit/offsets.m    the vendored offset table the verdict compares against
 .github/workflows/    the daily cron

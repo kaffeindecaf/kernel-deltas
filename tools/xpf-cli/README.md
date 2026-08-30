@@ -12,6 +12,13 @@ kernel struct offsets against the 26.0.1 table in `kexploit/offsets.m`.
 ./xpf-cli kernelcache.img4 out.macho # decompress kernel to raw Mach-O
 ```
 
+No full IPSW handy? The repo's kcwatch script ranged-fetches just the
+kernelcache out of an IPSW url (about 20 MB of an 8 GB file):
+
+```bash
+python3 scripts/kcwatch.py fetch <ipsw-url> kernelcache.img4
+```
+
 Debian/Ubuntu build deps: `sudo apt install liblzfse-dev libblocksruntime-dev`
 (plus clang). The shipped `xpf-cli` binary is linked against liblzfse.so.1
 and libBlocksRuntime.so.0 — install `liblzfse1 libblocksruntime0` if you
