@@ -1,4 +1,5 @@
 # watcher scratch space (kernelcache IMG4s etc.)
 .kcwatch/
+.w0lfsword/
 *.img4
 __pycache__/
