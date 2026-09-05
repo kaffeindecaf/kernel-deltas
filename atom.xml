@@ -2,19 +2,19 @@
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>kernel-deltas</title>
   <id>https://github.com/kaffeindecaf/kernel-deltas</id>
-  <updated>2026-09-04T10:07:08Z</updated>
+  <updated>2026-09-05T09:35:48Z</updated>
   <link rel="self" href="https://github.com/kaffeindecaf/kernel-deltas/atom.xml"/>
   <entry>
     <title>t8110-26.6.1-23G83</title>
     <id>https://github.com/kaffeindecaf/kernel-deltas/reports/t8110-26.6.1-23G83.md</id>
-    <updated>2026-09-04T10:07:07Z</updated>
+    <updated>2026-09-05T09:35:47Z</updated>
     <summary>## iOS 26.6.1 (23G83) - t8110 (A15, iPhone 14) - 2026-08-30  xnu: 12377.162.13~2 -> 12377.162.14~4 resolved: A=71  B=71   identical: 59   changed: 13   degraded: 0  CHANGED:   kernelSymbol.arm_vm_init: 0xfffffff009f797a8 -> 0xfffffff009f79984   kernelSymbol.fatal_error_fmt: 0xfffffff008bb3400 -> 0xfffffff008bb3860   kernelSymbol.gPhysBase: 0xfffffff007afccb0 -> 0xfffffff007afcdf0   kernelSymbol.gPhysSize: 0xfffffff007afccb8 -> 0xfffffff007afcdf8   kernelSymbol.load_static_trust_cache: 0xfffffff00a32fff8 -> 0xfffffff00a3302e4   kernelSymbol.phys_attribute_clear_with_flush_range: 0xfffffff009f6bfb0 -> 0xfffffff009f6c18c   kernelSymbol.phystokv: 0xfffffff00a602f3c -> 0xfffffff00a603380   kernelSymbol.pmap_bootstrap: 0xfffffff009f67e48 -> 0xfffffff009f68024   kernelSymbol.pmap_enter_options_addr: 0xfffffff009f625a8 -> 0xfffffff009f62784   kernelSymbol.pmap_remove_options: 0xfffffff009f6a4d4 -> 0xfffffff009f6a6b0   kernelSymbol.proc_get_syscall_filter_mask_size: 0xfffffff00a2fb524 -> 0xfffffff00a2fb840   kernelSymbol.ptov_table: 0xfffffff007b400f0 -> 0xfffffff007b40230   kernelSymbol.vn_kqfilter: 0xfffffff009fff3cc -> 0xfffffff009fff5a8</summary>
     <link href="https://github.com/kaffeindecaf/kernel-deltas/reports/t8110-26.6.1-23G83.md"/>
   </entry>
   <entry>
     <title>t8030-26.6.1-23G83</title>
     <id>https://github.com/kaffeindecaf/kernel-deltas/reports/t8030-26.6.1-23G83.md</id>
-    <updated>2026-09-04T10:07:07Z</updated>
+    <updated>2026-09-05T09:35:47Z</updated>
     <summary>## iOS 26.6.1 (23G83) - t8030 (A13, iPhone SE 2) - 2026-08-30  xnu: 12377.162.13~2 -> 12377.162.14~4 resolved: A=71  B=71   identical: 59   changed: 12   degraded: 0  CHANGED:   kernelSymbol.arm_vm_init: 0xfffffff009e75414 -> 0xfffffff009e75658   kernelSymbol.fatal_error_fmt: 0xfffffff008b7c6d0 -> 0xfffffff008b7cb10   kernelSymbol.gPhysBase: 0xfffffff007b2faf8 -> 0xfffffff007b2fc38   kernelSymbol.gPhysSize: 0xfffffff007b2fb00 -> 0xfffffff007b2fc40   kernelSymbol.gVirtBase: 0xfffffff007b2daf8 -> 0xfffffff007b2dc38   kernelSymbol.phystokv: 0xfffffff009e73cf4 -> 0xfffffff009e73f38   kernelSymbol.pmap_bootstrap: 0xfffffff009e69574 -> 0xfffffff009e697b8   kernelSymbol.pmap_enter_options_addr: 0xfffffff009e6ab20 -> 0xfffffff009e6ad64   kernelSymbol.pmap_pin_kernel_pages: 0xfffffff009e65b38 -> 0xfffffff009e65d7c   kernelSymbol.pmap_remove_options: 0xfffffff009e6a8ec -> 0xfffffff009e6ab30   kernelSymbol.proc_get_syscall_filter_mask_size: 0xfffffff00a1e4554 -> 0xfffffff00a1e48e0   kernelSymbol.vn_kqfilter: 0xfffffff009ee6730 -> 0xfffffff009ee6974</summary>
     <link href="https://github.com/kaffeindecaf/kernel-deltas/reports/t8030-26.6.1-23G83.md"/>
   </entry>
