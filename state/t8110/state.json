@@ -1,16 +1,16 @@
 {
   "board": "t8110",
   "last": {
-    "version": "26.6.1",
-    "buildid": "23G83",
-    "date": "2026-08-17T17:49:21Z",
+    "version": "26.6.2",
+    "buildid": "23G90",
+    "date": "2026-09-08T18:13:28Z",
     "signed": true,
-    "dump": ".kcwatch/t8110/26.6.1-23G83.txt",
+    "dump": ".kcwatch/t8110/26.6.2-23G90.txt",
     "xnu": "12377.162.14~4",
-    "identical": 59,
-    "changed": 13,
+    "identical": 72,
+    "changed": 0,
     "degraded": 0,
-    "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant offsets identical to previous build)"
+    "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.2 (all struct/constant offsets identical to previous build)"
   },
   "history": [
     {
@@ -32,6 +32,18 @@
       "changed": 13,
       "degraded": 0,
       "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.1 (all struct/constant offsets identical to previous build)"
+    },
+    {
+      "version": "26.6.2",
+      "buildid": "23G90",
+      "date": "2026-09-08T18:13:28Z",
+      "signed": true,
+      "dump": ".kcwatch/t8110/26.6.2-23G90.txt",
+      "xnu": "12377.162.14~4",
+      "identical": 72,
+      "changed": 0,
+      "degraded": 0,
+      "verdict": "YES: offsets.m block '>= 26.0' applies to 26.6.2 (all struct/constant offsets identical to previous build)"
     }
   ]
 }
