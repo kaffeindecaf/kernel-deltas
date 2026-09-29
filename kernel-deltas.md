@@ -13,5 +13,7 @@ Latest entries across all watched boards. Full reports:
 | 2026-09-08T18:13:41Z | t8030 | 26.6.2 | 23G90 | 12377.162.14~4 | 71 | 0 | 0 | YES |
 | 2026-09-14T17:18:44Z | t8110 | 27.0 | 24A437 | 13432.2.10~2 | 32 | 40 | 0 | NO |
 | 2026-09-14T17:19:01Z | t8030 | 27.0 | 24A437 | 13432.2.10~2 | 21 | 48 | 1 | NO |
+| 2026-09-28T18:54:00Z | t8030 | 27.0.1 | 24A446 | 13432.2.10~2 | 72 | 0 | 0 | YES |
+| 2026-09-28T18:54:24Z | t8110 | 27.0.1 | 24A446 | 13432.2.10~2 | 72 | 0 | 0 | YES |
 
 _same = struct/constant offsets identical to previous build · changed = symbol addresses shifted · degraded = item went resolved→UNRESOLVED_

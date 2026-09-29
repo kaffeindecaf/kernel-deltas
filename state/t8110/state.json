@@ -1,16 +1,16 @@
 {
   "board": "t8110",
   "last": {
-    "version": "27.0",
-    "buildid": "24A437",
-    "date": "2026-09-14T17:18:44Z",
+    "version": "27.0.1",
+    "buildid": "24A446",
+    "date": "2026-09-28T18:54:24Z",
     "signed": true,
-    "dump": ".kcwatch/t8110/27.0-24A437.txt",
+    "dump": ".kcwatch/t8110/27.0.1-24A446.txt",
     "xnu": "13432.2.10~2",
-    "identical": 32,
-    "changed": 40,
+    "identical": 72,
+    "changed": 0,
     "degraded": 0,
-    "verdict": "NO: offsets.m block '>= 26.0' does NOT cover 27.0: struct/constant items moved (kernelConstant.mach_trap_count, kernelConstant.nsysent, kernelStruct.proc.p_name, kernelStruct.proc.struct_size)"
+    "verdict": "YES: offsets.m block '>= 26.0' applies to 27.0.1 (all struct/constant offsets identical to previous build)"
   },
   "history": [
     {
@@ -56,6 +56,18 @@
       "changed": 40,
       "degraded": 0,
       "verdict": "NO: offsets.m block '>= 26.0' does NOT cover 27.0: struct/constant items moved (kernelConstant.mach_trap_count, kernelConstant.nsysent, kernelStruct.proc.p_name, kernelStruct.proc.struct_size)"
+    },
+    {
+      "version": "27.0.1",
+      "buildid": "24A446",
+      "date": "2026-09-28T18:54:24Z",
+      "signed": true,
+      "dump": ".kcwatch/t8110/27.0.1-24A446.txt",
+      "xnu": "13432.2.10~2",
+      "identical": 72,
+      "changed": 0,
+      "degraded": 0,
+      "verdict": "YES: offsets.m block '>= 26.0' applies to 27.0.1 (all struct/constant offsets identical to previous build)"
     }
   ]
 }
