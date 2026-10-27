@@ -1,16 +1,16 @@
 {
   "board": "t8030",
   "last": {
-    "version": "27.0.1",
-    "buildid": "24A446",
-    "date": "2026-09-28T18:54:00Z",
+    "version": "27.2",
+    "buildid": "24B119",
+    "date": "2026-10-26T18:33:11Z",
     "signed": true,
-    "dump": ".kcwatch/t8030/27.0.1-24A446.txt",
-    "xnu": "13432.2.10~2",
-    "identical": 72,
-    "changed": 0,
+    "dump": ".kcwatch/t8030/27.2-24B119.txt",
+    "xnu": "13432.42.3~28",
+    "identical": 43,
+    "changed": 29,
     "degraded": 0,
-    "verdict": "YES: offsets.m block '>= 26.0' applies to 27.0.1 (all struct/constant offsets identical to previous build)"
+    "verdict": "YES: offsets.m block '>= 26.0' applies to 27.2 (all struct/constant offsets identical to previous build)"
   },
   "history": [
     {
@@ -68,6 +68,18 @@
       "changed": 0,
       "degraded": 0,
       "verdict": "YES: offsets.m block '>= 26.0' applies to 27.0.1 (all struct/constant offsets identical to previous build)"
+    },
+    {
+      "version": "27.2",
+      "buildid": "24B119",
+      "date": "2026-10-26T18:33:11Z",
+      "signed": true,
+      "dump": ".kcwatch/t8030/27.2-24B119.txt",
+      "xnu": "13432.42.3~28",
+      "identical": 43,
+      "changed": 29,
+      "degraded": 0,
+      "verdict": "YES: offsets.m block '>= 26.0' applies to 27.2 (all struct/constant offsets identical to previous build)"
     }
   ]
 }
