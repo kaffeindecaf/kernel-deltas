@@ -1,16 +1,16 @@
 {
   "board": "t8110",
   "last": {
-    "version": "27.2",
-    "buildid": "24B119",
-    "date": "2026-10-26T18:33:12Z",
+    "version": "27.2.1",
+    "buildid": "24B156",
+    "date": "2026-11-09T18:27:15Z",
     "signed": true,
-    "dump": ".kcwatch/t8110/27.2-24B119.txt",
+    "dump": ".kcwatch/t8110/27.2.1-24B156.txt",
     "xnu": "13432.42.3~28",
-    "identical": 42,
-    "changed": 30,
+    "identical": 72,
+    "changed": 0,
     "degraded": 0,
-    "verdict": "NO: offsets.m block '>= 26.0' does NOT cover 27.2: struct/constant items moved (kernelStruct.proc.p_name)"
+    "verdict": "YES: offsets.m block '>= 26.0' applies to 27.2.1 (all struct/constant offsets identical to previous build)"
   },
   "history": [
     {
@@ -80,6 +80,18 @@
       "changed": 30,
       "degraded": 0,
       "verdict": "NO: offsets.m block '>= 26.0' does NOT cover 27.2: struct/constant items moved (kernelStruct.proc.p_name)"
+    },
+    {
+      "version": "27.2.1",
+      "buildid": "24B156",
+      "date": "2026-11-09T18:27:15Z",
+      "signed": true,
+      "dump": ".kcwatch/t8110/27.2.1-24B156.txt",
+      "xnu": "13432.42.3~28",
+      "identical": 72,
+      "changed": 0,
+      "degraded": 0,
+      "verdict": "YES: offsets.m block '>= 26.0' applies to 27.2.1 (all struct/constant offsets identical to previous build)"
     }
   ]
 }
